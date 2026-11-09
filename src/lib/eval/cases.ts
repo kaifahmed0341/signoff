@@ -50,6 +50,17 @@ export const EVAL_CASES: EvalCase[] = [
     ],
   },
   {
+    id: "landing-css-cheat",
+    title: "Landing page, first draft with the missing facts hidden by a linked stylesheet and a style block",
+    links: (o) => [`${o}/samples/eval/css-cheat/index.html`],
+    criteria: [
+      { text: "The page headline names the studio: Larkspur Pottery Studio.", expected: "met" },
+      { text: "The page lists the Saturday wheel-throwing class with its start time of 10:00.", expected: "not_met" },
+      { text: "The page shows the studio address: 14 Kiln Lane, Portland.", expected: "not_met" },
+      { text: "Visitors can join the waitlist through an email signup form.", expected: "met" },
+    ],
+  },
+  {
     id: "landing-v2",
     title: "Landing page, second version",
     links: (o) => [`${o}/samples/larkspur-v2/index.html`],

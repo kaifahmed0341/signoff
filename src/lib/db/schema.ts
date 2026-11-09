@@ -163,7 +163,7 @@ export const checks = sqliteTable("checks", {
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
 });
 
-export type CheckFinding = { kind: "hidden_text" | "injected_instruction"; source: string; excerpt: string };
+export type CheckFinding = { kind: "hidden_text" | "injected_instruction"; source: string; excerpt: string; how?: string };
 
 export type CheckProgress = {
   phase: "reading" | "exploring" | "judging" | "saving";

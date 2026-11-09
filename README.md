@@ -60,7 +60,8 @@ Every quote the checker cites is verified in code (`src/lib/ai/evidence.ts`) and
 
 - it is at least 20 characters, so a lone word cannot prove a criterion;
 - it is not the requirement itself: quoting the criterion back does not prove it was met;
-- it appears word for word in text a visitor can see on a delivered page, in a delivered file or in the repository. The scope is never a source, page titles and tool headers are never quotable, and text hidden from visitors (`hidden`, `display:none`, `visibility:hidden`, zero opacity or font size) never counts;
+- it appears word for word in text a visitor can see on a delivered page, in a delivered file or in the repository. The scope is never a source, and page titles and tool headers are never quotable;
+- it is not hidden from visitors. Signoff reads inline styles, `<style>` blocks and same-origin linked stylesheets, and treats as hidden: `display:none`, `visibility:hidden`, zero opacity, zero font size, clipping, a 1-pixel box with overflow hidden, off-screen positioning or translation, a large negative text indent, and text coloured like its background where both colours are stated. It matches tag, class, id, attribute and compound selectors with descendant and child combinators;
 - it shares at least one key word with the criterion.
 
 Removed quotes are kept and shown on the report with the reason. A "met" with no surviving quote becomes "needs a person". Text from the freelancer's own notes is shown as a claim, and a "met" resting only on notes goes to a person. Hidden text and instructions aimed at the checker are listed on the report as tampering.
@@ -87,7 +88,7 @@ A check reads every link and file once in parallel, lets the model explore furth
 
 ### Evaluation
 
-`pnpm eval` runs 6 deliveries and 23 criteria with known right answers: the two sample versions, the cheat version, a prices page with one wrong price and a subjective criterion, a handover PDF uploaded as a file, and this repository on GitHub.
+`pnpm eval` runs 7 deliveries and 27 criteria with known right answers: the two sample versions, the cheat version, a version that hides the missing facts with a linked stylesheet, a prices page with one wrong price and a subjective criterion, a handover PDF uploaded as a file, and this repository on GitHub.
 
 **Latest, 9 November 2026, `google/gemini-3.5-flash-lite`: 23 of 23 correct, 0 wrong, 0 sent to a person.** For comparison, the scripted checker with no AI gets 14 of the 20 offline criteria right, 4 wrong and 2 sent to a person. Full table and timings: [docs/eval-latest.md](docs/eval-latest.md). The sample loop ran five times in a row with v1 failing the same two criteria and v2 passing every time, at about 2 seconds a check.
 
@@ -150,7 +151,7 @@ Stack: Next.js 16, TypeScript strict, Tailwind with shadcn/ui, AG Grid Community
 ## Known limits
 
 - Not yet run against the Braintree sandbox; see the status above. What the Drop-in's PayPal button does on a sandbox not linked to a PayPal test account is unverified.
-- Hidden text is detected from the `hidden` attribute and inline styles. Text hidden by a stylesheet class, off-screen positioning or matching colours is not detected; a headless browser would catch it.
+- Hidden text set by JavaScript, by stylesheets from another origin or `@import`, by pseudo-class or sibling selectors, by text over an image or gradient, or by stacking one element over another is not detected; a headless browser would catch those.
 - Client links do not expire; the operator can replace a link to revoke the old one.
 - The test rail's dispute outcome follows Braintree's sandbox convention: evidence containing `compelling_evidence` wins. A real dispute is decided by the card issuer.
 - The Gemini free tier allows few requests per minute and about 20 a day on `gemini-3.5-flash`. A busy public demo needs a paid key, or it falls back to the scripted checker and says so.

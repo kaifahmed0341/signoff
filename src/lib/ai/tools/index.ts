@@ -26,10 +26,31 @@ export type ToolRecord = {
   ok: boolean;
   quotable?: string;
   hidden?: string[];
+  hiddenReasons?: string[];
   kind?: SourceKind;
 };
 
-type ReadResult = { output: string; quotable: string; hidden?: string[]; kind: SourceKind };
+type ReadResult = { output: string; quotable: string; hidden?: string[]; hiddenReasons?: string[]; kind: SourceKind };
+
+const MAX_STYLESHEETS = 5;
+const MAX_STYLESHEET_BYTES = 300_000;
+
+/** Fetches the page's same-origin stylesheets, within the fetch policy and the daily cap. Failures are skipped. */
+async function fetchStylesheets(ctx: ToolContext, pageUrl: string, hrefs: string[]): Promise<string[]> {
+  const origin = new URL(pageUrl).origin;
+  const urls = [...new Set(hrefs.map((h) => { try { return new URL(h, pageUrl); } catch { return null; } }).filter((u): u is URL => !!u && u.origin === origin).map((u) => u.toString()))].slice(0, MAX_STYLESHEETS);
+  const out: string[] = [];
+  for (const u of urls) {
+    if (ctx.allowFetch && (await ctx.allowFetch())) break;
+    try {
+      const doc = await safeFetch(u, { ...policyFor(ctx), maxBytes: MAX_STYLESHEET_BYTES, timeoutMs: 5_000 });
+      if (doc.status < 400 && /css|text\/plain|^$/.test(doc.contentType.toLowerCase().split(";")[0])) out.push(doc.body.toString("utf8"));
+    } catch {
+      /* a stylesheet that cannot be read just is not used */
+    }
+  }
+  return out;
+}
 
 export type ToolContext = {
   links: string[];
@@ -74,7 +95,7 @@ async function record(ctx: ToolContext, toolName: string, input: Record<string, 
     }
     const r = await run();
     const output = clip(r.output);
-    ctx.records.push({ tool: toolName, input, source, output, ok: true, quotable: clip(r.quotable), hidden: r.hidden, kind: r.kind });
+    ctx.records.push({ tool: toolName, input, source, output, ok: true, quotable: clip(r.quotable), hidden: r.hidden, hiddenReasons: r.hiddenReasons, kind: r.kind });
     return output;
   } catch (err) {
     const msg = err instanceof FetchBlockedError ? `Blocked: ${err.message}` : `Error: ${err instanceof Error ? err.message : String(err)}`;
@@ -94,10 +115,12 @@ export async function readUrl(ctx: ToolContext, url: string): Promise<string> {
       return { output: `${head}\n${text}`, quotable: text, kind: "page" };
     }
     if (ct.includes("html") || /^\s*</.test(doc.body.subarray(0, 64).toString())) {
-      const { title, text, hidden } = htmlToText(doc.body.toString("utf8"));
+      const html = doc.body.toString("utf8");
+      const sheets = await fetchStylesheets(ctx, doc.url, htmlToText(html).stylesheets);
+      const { title, text, hidden, hiddenReasons } = htmlToText(html, { extraCss: sheets });
       // The model sees the title as context, but only visible body text can be quoted as evidence.
       const note = hidden.length ? `\n[${hidden.length} block(s) of text on this page are hidden from visitors and were left out]` : "";
-      return { output: `${head}\n${title ? `Page title (not page content): ${title}\n` : ""}${text}${note}`, quotable: text, hidden, kind: "page" };
+      return { output: `${head}\n${title ? `Page title (not page content): ${title}\n` : ""}${text}${note}`, quotable: text, hidden, hiddenReasons, kind: "page" };
     }
     const text = doc.body.toString("utf8");
     return { output: `${head}\n${text}`, quotable: text, kind: "page" };

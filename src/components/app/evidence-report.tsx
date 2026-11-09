@@ -71,7 +71,10 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
               <li key={i} className="flex gap-2">
                 {f.kind === "hidden_text" ? <EyeOff className="size-3.5 mt-0.5 shrink-0" /> : <ShieldAlert className="size-3.5 mt-0.5 shrink-0" />}
                 <span className="min-w-0">
-                  <span className="font-medium">{f.kind === "hidden_text" ? "Text hidden from visitors" : "Instruction aimed at the AI checker"}:</span>{" "}
+                  <span className="font-medium">
+                    {f.kind === "hidden_text" ? "Text hidden from visitors" : "Instruction aimed at the AI checker"}
+                    {f.how ? ` (${f.how})` : ""}:
+                  </span>{" "}
                   <span className="break-words">&ldquo;{f.excerpt}&rdquo;</span>
                 </span>
               </li>

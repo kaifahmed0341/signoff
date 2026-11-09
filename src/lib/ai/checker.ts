@@ -73,9 +73,9 @@ const INJECTION = /(ignore (all |any |the )?(previous|prior|above|earlier) (inst
 export function findTampering(ctx: ToolContext): CheckFinding[] {
   const out: CheckFinding[] = [];
   for (const r of ctx.records.filter((x) => x.ok)) {
-    for (const h of r.hidden ?? []) {
+    for (const [i, h] of (r.hidden ?? []).entries()) {
       if (h.trim().length < 3) continue;
-      out.push({ kind: INJECTION.test(h) ? "injected_instruction" : "hidden_text", source: r.source, excerpt: h.slice(0, 240) });
+      out.push({ kind: INJECTION.test(h) ? "injected_instruction" : "hidden_text", source: r.source, excerpt: h.slice(0, 240), how: r.hiddenReasons?.[i] });
     }
     for (const line of (r.quotable ?? r.output).split("\n")) {
       if (INJECTION.test(line)) out.push({ kind: "injected_instruction", source: r.source, excerpt: line.slice(0, 240) });

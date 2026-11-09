@@ -16,7 +16,7 @@ export async function startStaticServer(): Promise<{ server: Server; origin: str
     const p = path.normalize(decodeURIComponent((req.url ?? "/").split("?")[0]));
     try {
       const body = await readFile(path.join(root, p));
-      res.writeHead(200, { "content-type": p.endsWith(".html") ? "text/html; charset=utf-8" : "application/octet-stream" });
+      res.writeHead(200, { "content-type": p.endsWith(".html") ? "text/html; charset=utf-8" : p.endsWith(".css") ? "text/css; charset=utf-8" : p.endsWith(".pdf") ? "application/pdf" : "application/octet-stream" });
       res.end(body);
     } catch {
       res.writeHead(404);

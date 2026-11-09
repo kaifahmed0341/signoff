@@ -6,6 +6,7 @@
  *   pnpm eval --sample-runs 5       # the sample loop (v1 then v2) five times, with timings
  *   pnpm eval --offline             # skip the case that needs GitHub
  *   pnpm eval --pause 15            # wait between checks, to stay inside a free-tier quota
+ *   pnpm eval --only a,b --no-write # run some cases without replacing docs/eval-latest.md
  *
  * Uses an in-memory database and the test rail. The model comes from the
  * environment like the app (Gemini by default); with no key it runs the
@@ -58,8 +59,10 @@ if (sampleRuns) {
   console.log("\nExpected: v1 MNNM, v2 MMMM (M met, N not met, P needs a person)");
 } else {
   const results: EvalCaseResult[] = [];
+  const only = args.includes("--only") ? args[args.indexOf("--only") + 1].split(",") : null;
   for (const c of EVAL_CASES) {
     if (offline && c.network) continue;
+    if (only && !only.includes(c.id)) continue;
     results.push(await runEvalCase(world.db, world.rail, world.owner.id, c, origin));
     await pause();
   }
