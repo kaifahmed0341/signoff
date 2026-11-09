@@ -32,7 +32,9 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   await page.getByRole("button", { name: "Submit delivery for checking" }).click();
   await expect(page.getByText("Evidence report for delivery v1")).toBeVisible();
   await expect(page.getByText("Tampering found on the delivered page")).toBeVisible();
-  await expect(page.getByText(/Removed: copied from the requirement/).first()).toBeVisible();
+  // Whatever the checker (scripted or a live model) concluded, the hidden start time must not pass.
+  const saturday = page.locator("li", { hasText: "The page lists the Saturday wheel-throwing class" }).last();
+  await expect(saturday.getByText("Met", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/03-report-cheat.png`, fullPage: true });
 
   // The client asks for changes with a drafted note.
