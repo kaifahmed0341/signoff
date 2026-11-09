@@ -1,0 +1,48 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 900 >>
+stream
+BT
+/F1 16 Tf 1 0 0 1 72 760 Tm (Website handover: Larkspur Pottery Studio) Tj
+/F1 11 Tf 1 0 0 1 72 735 Tm (Prepared by the developer on 2 November 2026.) Tj
+/F1 11 Tf 1 0 0 1 72 715 Tm () Tj
+/F1 13 Tf 1 0 0 1 72 695 Tm (Hosting) Tj
+/F1 11 Tf 1 0 0 1 72 673 Tm (The site is hosted on Northwind Pages, on the Starter plan.) Tj
+/F1 11 Tf 1 0 0 1 72 653 Tm (Admin login: https://admin.northwind.example/larkspur) Tj
+/F1 11 Tf 1 0 0 1 72 633 Tm () Tj
+/F1 13 Tf 1 0 0 1 72 613 Tm (Domain) Tj
+/F1 11 Tf 1 0 0 1 72 591 Tm (The domain larkspur-pottery.example renews on 3 March 2027.) Tj
+/F1 11 Tf 1 0 0 1 72 571 Tm () Tj
+/F1 13 Tf 1 0 0 1 72 551 Tm (Backups) Tj
+/F1 11 Tf 1 0 0 1 72 529 Tm (Backups run every night and are kept for 14 days.) Tj
+/F1 11 Tf 1 0 0 1 72 509 Tm () Tj
+/F1 13 Tf 1 0 0 1 72 489 Tm (Support) Tj
+/F1 11 Tf 1 0 0 1 72 467 Tm (For urgent problems email support@northwind.example.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1262
+%%EOF

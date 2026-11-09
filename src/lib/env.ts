@@ -61,7 +61,8 @@ export function env(): Env {
 
 /** Test hook: override env values for one test run. */
 export function setEnvForTests(overrides: Partial<Env>) {
-  cached = { ...schema.parse({}), ...overrides };
+  const defined = Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined));
+  cached = { ...schema.parse({}), ...defined };
 }
 
 /** Which payment rail the app talks to. Defaults to the sandbox once keys exist. */

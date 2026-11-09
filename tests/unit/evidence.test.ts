@@ -44,3 +44,13 @@ describe("html to text", () => {
     expect(text).not.toContain("alert");
   });
 });
+
+describe("uploaded files", () => {
+  it("extracts quotable text from the sample PDF", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const { fileToText } = await import("@/lib/services/files");
+    const f = await fileToText("handover.pdf", "application/pdf", new Uint8Array(await readFile("public/samples/eval/handover.pdf")));
+    expect(f.mime).toBe("application/pdf");
+    expect(normalizeText(f.text)).toContain("The site is hosted on Northwind Pages, on the Starter plan.");
+  });
+});

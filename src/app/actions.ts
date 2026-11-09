@@ -3,7 +3,6 @@
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { extractText, getDocumentProxy } from "unpdf";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getRail } from "@/lib/payments";
@@ -12,6 +11,7 @@ import { runCheck } from "@/lib/ai/checker";
 import { planFromScope, type PlannedProject } from "@/lib/ai/planner";
 import { createSampleProject } from "@/lib/sample";
 import { audit } from "@/lib/services/audit";
+import { fileToText } from "@/lib/services/files";
 import { MAX_FILE_BYTES, MAX_FILES, submitDelivery } from "@/lib/services/deliveries";
 import { approveAndSubmitDispute, getDisputeRow, handleWebhook, syncDisputes } from "@/lib/services/disputes";
 import {
@@ -134,15 +134,6 @@ export async function sendProjectAction(projectId: string): Promise<ActionResult
 
 // ---------------------------------------------------------------- deliveries
 
-async function fileToText(f: File): Promise<{ name: string; mime: string; text: string }> {
-  const buf = new Uint8Array(await f.arrayBuffer());
-  if (f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf")) {
-    const pdf = await getDocumentProxy(buf);
-    return { name: f.name, mime: "application/pdf", text: (await extractText(pdf, { mergePages: true })).text };
-  }
-  return { name: f.name, mime: f.type || "text/plain", text: new TextDecoder().decode(buf) };
-}
-
 export async function submitDeliveryAction(form: FormData): Promise<ActionResult> {
   const w = await requireWorkspace();
   try {
@@ -156,7 +147,7 @@ export async function submitDeliveryAction(form: FormData): Promise<ActionResult
     const files: { name: string; mime: string; text: string }[] = [];
     for (const f of uploads) {
       if (f.size > MAX_FILE_BYTES) throw new ServiceError(`${f.name} is over ${MAX_FILE_BYTES / 1_000_000} MB`);
-      files.push(await fileToText(f));
+      files.push(await fileToText(f.name, f.type, new Uint8Array(await f.arrayBuffer())));
     }
     const deliveryId = await submitDelivery(db, milestoneId, { links, notes, files });
     // The check runs after the response is sent; the page polls its progress.
