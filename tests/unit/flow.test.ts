@@ -364,3 +364,31 @@ describe("the cheat sample", () => {
     expect(vs[2].verdict).not.toBe("met");
   });
 });
+
+describe("the report summary", () => {
+  it("counts the verdicts as shown, after quotes are removed, for the scripted checker", async () => {
+    const p = await createSampleProject(db, OWNER);
+    const [m] = await projectMilestones(db, p.id);
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks("cheat"), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    const vs = await verdictsFor(m.id);
+    const check = await latestCheck(db, m.id);
+    const met = vs.filter((v) => v.verdict === "met").length;
+    const person = vs.filter((v) => v.verdict === "needs_person").length;
+    expect(person).toBeGreaterThan(0);
+    expect(check!.summary).toContain(`${met} of ${vs.length} criteria met`);
+    expect(check!.summary).toContain(`${person} for a person to judge`);
+  });
+
+  it("counts the verdicts as shown for a model whose quotes are removed", async () => {
+    const p = await createSampleProject(db, OWNER);
+    const [m] = await projectMilestones(db, p.id);
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
+    setModelForTests({ label: "mock/test", model: mockJudge(() => ({ verdict: "met", reasoning: "ok", evidence: [{ source: "x", quote: "An invented sentence that is not on the page" }] })).model });
+    await runCheck(db, m.id, d);
+    const check = await latestCheck(db, m.id);
+    expect(check!.summary).toBe("0 of 4 criteria met, 4 for a person to judge. Checked by mock/test.");
+  });
+});

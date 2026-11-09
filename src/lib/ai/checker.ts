@@ -131,6 +131,15 @@ export function summarize(results: { verdict: string }[], label: string): string
   return `${parts.join(", ")}. Checked by ${label}.`;
 }
 
+/**
+ * The report's summary line, built from the verdicts as saved, after the
+ * evidence rule has run, so it always matches the verdicts the report shows.
+ */
+export function finalSummary(final: { verdict: string }[], label: string, fallbackReason: string | null): string {
+  const by = label === "scripted" ? "the scripted checker, which matches key words and uses no AI" : label;
+  return `${fallbackReason ? `${fallbackReason}, so the scripted checker ran instead. ` : ""}${summarize(final, by)}`;
+}
+
 /** Marks checks that never finished (a crashed or timed-out function) as failed, and frees the milestone. */
 export async function failStaleChecks(db: DB, milestoneId: string, now = Date.now()) {
   const stale = await db
@@ -256,12 +265,14 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
     const corpus = corpusOf(ctx);
     const findings = findTampering(ctx);
     let droppedTotal = 0;
+    const finalVerdicts: { verdict: VerdictValue }[] = [];
     for (const [i, c] of crit.entries()) {
       const r = out.results.find((x) => x.criterionId === `c${i + 1}`);
       const raw: RawEvidence[] = r?.evidence ?? [];
       const { kept, dropped } = verifyEvidence(raw, corpus, { text: c.text, sourceQuote: c.sourceQuote });
       droppedTotal += dropped.length;
       const enforced = enforceEvidenceRule(r?.verdict ?? "needs_person", kept, dropped);
+      finalVerdicts.push({ verdict: enforced.verdict });
       await db.insert(verdicts).values({
         id: newId("vd"),
         checkId,
@@ -278,7 +289,7 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
     }
     await db
       .update(checks)
-      .set({ status: "done", model: label, fallbackReason, findings, summary: out.summary, droppedEvidence: droppedTotal, finishedAt: new Date() })
+      .set({ status: "done", model: label, fallbackReason, findings, summary: finalSummary(finalVerdicts, label, fallbackReason), droppedEvidence: droppedTotal, finishedAt: new Date() })
       .where(eq(checks.id, checkId));
     await applyEvent(db, await getMilestone(db, milestoneId), "CHECK_COMPLETE");
     await audit(db, {
