@@ -3,8 +3,56 @@ import { integer, sqliteTable, text, uniqueIndex, index } from "drizzle-orm/sqli
 
 const now = sql`(unixepoch() * 1000)`;
 
+/** A private space. Self-hosted installs have one "owner" workspace; the public demo gives each visitor a "demo" one. */
+export const workspaces = sqliteTable("workspaces", {
+  id: text("id").primaryKey(),
+  kind: text("kind").notNull(), // owner | demo
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
+  lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull().default(now),
+});
+
+/** Daily counters for AI checks, plans and URL fetches, per workspace and global. */
+export const usageCounters = sqliteTable("usage_counters", {
+  key: text("key").primaryKey(), // e.g. "global|ai_check|2026-11-09" or "ws_x|fetch|2026-11-09"
+  count: integer("count").notNull().default(0),
+  day: text("day").notNull(),
+});
+
+/** Persistent state for the built-in test rail, so it works across serverless instances. */
+export const fakeTransactions = sqliteTable("fake_transactions", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  status: text("status").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull(),
+  instrument: text("instrument").notNull(),
+  payerLabel: text("payer_label"),
+  authorizationExpiresAt: integer("authorization_expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+  opensDispute: integer("opens_dispute", { mode: "boolean" }).notNull().default(false),
+});
+
+export const fakeDisputes = sqliteTable("fake_disputes", {
+  id: text("id").primaryKey(),
+  transactionId: text("transaction_id").notNull(),
+  status: text("status").notNull(),
+  reason: text("reason"),
+  kind: text("kind"),
+  amountCents: integer("amount_cents").notNull(),
+  replyByDate: text("reply_by_date"),
+  evidence: text("evidence", { mode: "json" }).$type<{ id: string; content: string }[]>().notNull(),
+});
+
+export const kv = sqliteTable("kv", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
+
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   clientName: text("client_name").notNull(),
   clientEmail: text("client_email"),
@@ -97,9 +145,19 @@ export const checks = sqliteTable("checks", {
   summary: text("summary"),
   error: text("error"),
   droppedEvidence: integer("dropped_evidence").notNull().default(0),
+  /** Live progress while running: phase, what is being read, per-criterion status. */
+  progress: text("progress", { mode: "json" }).$type<CheckProgress>(),
+  /** Set when the scripted checker stood in for the model, with the reason in plain words. */
+  fallbackReason: text("fallback_reason"),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull().default(now),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
 });
+
+export type CheckProgress = {
+  phase: "reading" | "exploring" | "judging" | "saving";
+  reading: string[];
+  criteria: Record<string, "waiting" | "checking" | "done">;
+};
 
 export type EvidenceItem = { source: string; quote: string };
 
@@ -178,6 +236,7 @@ export const webhookEvents = sqliteTable(
 );
 
 export type Project = typeof projects.$inferSelect;
+export type Workspace = typeof workspaces.$inferSelect;
 export type Milestone = typeof milestones.$inferSelect;
 export type Criterion = typeof criteria.$inferSelect;
 export type Delivery = typeof deliveries.$inferSelect;

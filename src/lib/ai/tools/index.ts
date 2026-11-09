@@ -20,6 +20,10 @@ export type ToolContext = {
   selfOrigin?: string;
   githubToken?: string;
   records: ToolRecord[];
+  /** Called before a read starts, for live progress. */
+  onRead?: (label: string) => void | Promise<void>;
+  /** Called before a network read; returns a reason when the daily cap is used up. */
+  allowFetch?: () => Promise<string | null>;
 };
 
 export function policyFor(ctx: ToolContext): FetchPolicy {
@@ -39,8 +43,18 @@ function clip(s: string): string {
   return s.length > MAX_TOOL_TEXT ? `${s.slice(0, MAX_TOOL_TEXT)}\n[... truncated]` : s;
 }
 
+const NETWORK_TOOLS = new Set(["read_url", "github_repo", "github_file"]);
+
 async function record(ctx: ToolContext, toolName: string, input: Record<string, unknown>, source: string, run: () => Promise<string>): Promise<string> {
+  // Each source is read once per check; a repeat request gets the first result.
+  const seen = ctx.records.find((r) => r.tool === toolName && r.source === source && r.ok);
+  if (seen) return seen.output;
   try {
+    await ctx.onRead?.(`${toolName} ${source}`);
+    if (NETWORK_TOOLS.has(toolName) && ctx.allowFetch) {
+      const blocked = await ctx.allowFetch();
+      if (blocked) throw new FetchBlockedError(blocked);
+    }
     const output = clip(await run());
     ctx.records.push({ tool: toolName, input, source, output, ok: true });
     return output;
@@ -160,11 +174,32 @@ export function checkerTools(ctx: ToolContext) {
   };
 }
 
-/** Read everything the delivery points at once, before the agent explores further. */
+/** Read everything the delivery points at, in parallel, before any model call. */
 export async function gatherBaseline(ctx: ToolContext) {
-  for (const link of ctx.links) {
-    if (parseRepo(link)) await githubRepo(ctx, link);
-    else await readUrl(ctx, link);
+  await Promise.all([
+    ...ctx.links.map((link) => (parseRepo(link) ? githubRepo(ctx, link) : readUrl(ctx, link))),
+    ...ctx.files.map((f) => readFile(ctx, f.name)),
+  ]);
+}
+
+/**
+ * True when the delivery has more the model could usefully read: a repository
+ * (files beyond the summary) or pages linking to other pages on a delivery host.
+ */
+export function needsExploration(ctx: ToolContext): boolean {
+  if (ctx.links.some((l) => parseRepo(l))) return true;
+  const hosts = new Set(policyFor(ctx).allowedHosts);
+  const read = new Set(ctx.records.map((r) => r.source));
+  for (const r of ctx.records.filter((x) => x.ok && x.tool === "read_url")) {
+    for (const m of r.output.matchAll(/\((https?:\/\/[^\s)]+|\/[^\s)]*|[^\s()]+\.html?(?:[?#][^\s)]*)?)\)/g)) {
+      try {
+        const u = new URL(m[1], r.source);
+        u.hash = "";
+        if ((hosts.has(u.hostname) || (ctx.selfOrigin && u.origin === ctx.selfOrigin && u.pathname.startsWith("/samples/"))) && !read.has(u.toString())) return true;
+      } catch {
+        /* ignore */
+      }
+    }
   }
-  for (const f of ctx.files) await readFile(ctx, f.name);
+  return false;
 }

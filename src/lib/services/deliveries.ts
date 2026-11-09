@@ -5,6 +5,11 @@ import { audit } from "./audit";
 import { newId } from "./ids";
 import { ServiceError, applyEvent, getMilestone } from "./milestones";
 
+export const MAX_LINKS = 5;
+export const MAX_FILES = 3;
+export const MAX_FILE_BYTES = 2_000_000;
+export const MAX_FILE_TEXT = 100_000;
+
 export type DeliveryInput = {
   links: string[];
   notes: string;
@@ -23,7 +28,9 @@ export function cleanLinks(raw: string[]): string[] {
     if (u.protocol !== "http:" && u.protocol !== "https:") throw new ServiceError(`Links must start with http or https: ${l}`);
     out.push(u.toString());
   }
-  return [...new Set(out)].slice(0, 10);
+  const unique = [...new Set(out)];
+  if (unique.length > MAX_LINKS) throw new ServiceError(`Add at most ${MAX_LINKS} links`);
+  return unique;
 }
 
 /** Operator submits a delivery. The milestone moves to "checking"; the caller starts the checker. */
@@ -36,8 +43,9 @@ export async function submitDelivery(db: DB, milestoneId: string, input: Deliver
   await applyEvent(db, m, "SUBMIT_DELIVERY");
   const id = newId("dl");
   await db.insert(deliveries).values({ id, milestoneId: m.id, version, links, notes: input.notes.trim(), createdAt: new Date() });
-  for (const f of input.files.slice(0, 5)) {
-    await db.insert(deliveryFiles).values({ id: newId("df"), deliveryId: id, name: f.name.slice(0, 200), mime: f.mime, text: f.text.slice(0, 200_000) });
+  if (input.files.length > MAX_FILES) throw new ServiceError(`Attach at most ${MAX_FILES} files`);
+  for (const f of input.files) {
+    await db.insert(deliveryFiles).values({ id: newId("df"), deliveryId: id, name: f.name.slice(0, 200), mime: f.mime, text: f.text.slice(0, MAX_FILE_TEXT) });
   }
   await audit(db, {
     projectId: m.projectId,

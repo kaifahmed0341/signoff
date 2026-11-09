@@ -7,7 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { getDb } from "@/lib/db";
 import { isHoldActive, type MilestoneState } from "@/lib/domain/milestone-machine";
 import { loadSampleProject } from "@/app/actions";
-import { requireOperator } from "@/lib/web/auth";
+import { requireWorkspace } from "@/lib/web/auth";
 import { day, money } from "@/lib/web/format";
 import { loadDashboard } from "@/lib/web/views";
 
@@ -15,9 +15,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Projects" };
 
 export default async function Dashboard() {
-  await requireOperator();
+  const w = await requireWorkspace();
   const db = await getDb();
-  const { projects, milestones, disputes } = await loadDashboard(db);
+  const { projects, milestones, disputes } = await loadDashboard(db, w.id);
   const currency = projects[0]?.currency ?? "USD";
   const held = milestones.filter((m) => isHoldActive(m.state as MilestoneState)).reduce((a, m) => a + m.heldCents, 0);
   const released = milestones.reduce((a, m) => a + m.settledCents, 0);

@@ -1,12 +1,18 @@
 import braintree from "braintree";
+import { eq } from "drizzle-orm";
+import { getDb } from "../db";
+import { fakeDisputes, fakeTransactions, kv } from "../db/schema";
 import { parseWithGateway, sampleWithGateway } from "./braintree-rail";
 import { RELEASED_STATUSES, RailError, type DisputeInfo, type Hold, type PaymentRail, type WebhookEvent } from "./rail";
 
 /**
- * In-process stand-in for Braintree, used by the unit tests and by `pnpm dev`
- * when no Braintree keys are configured. It accepts the same fake nonces the
- * Braintree sandbox documents, and follows the same status rules: void only
- * while authorized, release only while authorized, settle only after release.
+ * Built-in stand-in for Braintree, used by the tests and by any install with
+ * no Braintree keys. It accepts the fake nonces the Braintree sandbox
+ * documents and follows the same status rules: void only while authorized or
+ * submitted, release only while authorized, settle only after release.
+ *
+ * State lives in the app database, not in process memory, so it behaves the
+ * same across serverless instances.
  *
  * Webhook signing and parsing use the real Braintree SDK with fixed local
  * keys, because that part of the SDK is plain HMAC and needs no network.
@@ -17,25 +23,15 @@ export const FAKE_NONCES = {
   paypal: "fake-paypal-one-time-nonce",
   declined: "fake-processor-declined-visa-nonce",
   fraud: "fake-gateway-rejected-fraud-nonce",
-  /** Fake-rail only: a card that opens a chargeback once settled, like Braintree's 4023898493988028. */
+  /** Test-rail only: a card that opens a chargeback once settled, like Braintree's 4023898493988028. */
   disputeCard: "fake-dispute-card-nonce",
 } as const;
 
 const DAY = 24 * 60 * 60 * 1000;
+const CLOCK_KEY = "fake_rail_clock_offset_ms";
 
-type FakeTxn = Hold & { orderId: string; opensDispute: boolean };
-type FakeDispute = DisputeInfo & { evidence: { id: string; content: string }[] };
-type Store = { txns: Map<string, FakeTxn>; disputes: Map<string, FakeDispute>; seq: number; clockOffset: number };
-
-const g = globalThis as unknown as { __signoffFakeRail?: Store };
-
-function store(): Store {
-  return (g.__signoffFakeRail ??= { txns: new Map(), disputes: new Map(), seq: 1000, clockOffset: 0 });
-}
-
-export function resetFakeRail() {
-  g.__signoffFakeRail = undefined;
-}
+type TxnRow = typeof fakeTransactions.$inferSelect;
+type DisputeRow = typeof fakeDisputes.$inferSelect;
 
 const webhookGateway = new braintree.BraintreeGateway({
   environment: braintree.Environment.Sandbox,
@@ -44,29 +40,51 @@ const webhookGateway = new braintree.BraintreeGateway({
   privateKey: "signoff_fake_private",
 });
 
+function newFakeId(prefix: string) {
+  return `${prefix}${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function toHold(t: TxnRow): Hold {
+  return {
+    transactionId: t.id,
+    status: t.status,
+    amountCents: t.amountCents,
+    currency: t.currency,
+    instrument: t.instrument,
+    payerLabel: t.payerLabel,
+    authorizationExpiresAt: t.authorizationExpiresAt,
+    createdAt: t.createdAt,
+    processorResponse: "Approved",
+  };
+}
+
+function toDispute(d: DisputeRow): DisputeInfo {
+  return { id: d.id, transactionId: d.transactionId, status: d.status, reason: d.reason, kind: d.kind, amountCents: d.amountCents, replyByDate: d.replyByDate };
+}
+
 export class FakeRail implements PaymentRail {
   readonly mode = "fake" as const;
 
-  private now() {
-    return Date.now() + store().clockOffset;
+  private async now() {
+    const db = await getDb();
+    const [row] = await db.select().from(kv).where(eq(kv.key, CLOCK_KEY));
+    return Date.now() + (row ? Number(row.value) : 0);
   }
 
-  private id(prefix: string) {
-    return `${prefix}${(store().seq++).toString(36)}`;
-  }
-
-  private get(transactionId: string): FakeTxn {
-    const t = store().txns.get(transactionId);
+  private async get(transactionId: string): Promise<TxnRow> {
+    const db = await getDb();
+    const [t] = await db.select().from(fakeTransactions).where(eq(fakeTransactions.id, transactionId));
     if (!t) throw new RailError(`Transaction ${transactionId} not found`, "not_found", transactionId);
-    if (t.status === "authorized" && t.authorizationExpiresAt && this.now() >= t.authorizationExpiresAt) {
-      t.status = "authorization_expired";
+    if (t.status === "authorized" && (await this.now()) >= t.authorizationExpiresAt) {
+      await this.setStatus(t.id, "authorization_expired");
+      return { ...t, status: "authorization_expired" };
     }
     return t;
   }
 
-  private view(t: FakeTxn): Hold {
-    const { orderId: _o, opensDispute: _d, ...hold } = t;
-    return { ...hold };
+  private async setStatus(id: string, status: string, patch: Partial<TxnRow> = {}) {
+    const db = await getDb();
+    await db.update(fakeTransactions).set({ ...patch, status }).where(eq(fakeTransactions.id, id));
   }
 
   async clientToken() {
@@ -74,121 +92,120 @@ export class FakeRail implements PaymentRail {
   }
 
   async authorize(input: { nonce: string; amountCents: number; orderId: string; description: string }): Promise<Hold> {
-    for (const t of store().txns.values()) {
-      if (t.orderId === input.orderId && t.status === "authorized") return this.view(t);
-    }
+    const db = await getDb();
+    const existing = await db.select().from(fakeTransactions).where(eq(fakeTransactions.orderId, input.orderId));
+    const live = existing.find((t) => t.status === "authorized");
+    if (live) return toHold(live);
     if (input.nonce === FAKE_NONCES.declined) throw new RailError("Authorization failed: Do Not Honor", "2000");
     if (input.nonce === FAKE_NONCES.fraud) throw new RailError("Authorization failed: Gateway Rejected: fraud", "fraud");
-    if (input.amountCents >= 200000 && input.amountCents < 300100) {
-      throw new RailError("Authorization failed: Do Not Honor", "2000");
-    }
+    if (input.amountCents >= 200000 && input.amountCents < 300100) throw new RailError("Authorization failed: Do Not Honor", "2000");
+    const known = new Set<string>([...Object.values(FAKE_NONCES), "fake-valid-nonce"]);
+    if (!known.has(input.nonce)) throw new RailError("Authorization failed: Unknown or expired payment_method_nonce", "91565");
     const isPaypal = input.nonce === FAKE_NONCES.paypal;
-    const known = new Set<string>(Object.values(FAKE_NONCES));
-    if (!known.has(input.nonce) && input.nonce !== "fake-valid-nonce") {
-      throw new RailError("Authorization failed: Unknown or expired payment_method_nonce", "91565");
-    }
-    const created = this.now();
-    const t: FakeTxn = {
-      transactionId: this.id("ftx"),
+    const created = await this.now();
+    const row: TxnRow = {
+      id: newFakeId("ftx"),
+      orderId: input.orderId,
       status: "authorized",
       amountCents: input.amountCents,
       currency: "USD",
       instrument: isPaypal ? "paypal_account" : "credit_card",
-      payerLabel: isPaypal
-        ? "PayPal buyer@example.com"
-        : `Visa ending ${input.nonce === FAKE_NONCES.disputeCard ? "8028" : "1111"}`,
+      payerLabel: isPaypal ? "PayPal buyer@example.com" : `Visa ending ${input.nonce === FAKE_NONCES.disputeCard ? "8028" : "1111"}`,
       authorizationExpiresAt: created + (isPaypal ? 29 : 7) * DAY,
       createdAt: created,
-      processorResponse: "Approved",
-      orderId: input.orderId,
       opensDispute: input.nonce === FAKE_NONCES.disputeCard,
     };
-    store().txns.set(t.transactionId, t);
-    return this.view(t);
+    await db.insert(fakeTransactions).values(row);
+    return toHold(row);
   }
 
   async getHold(transactionId: string) {
-    return this.view(this.get(transactionId));
+    return toHold(await this.get(transactionId));
   }
 
   async release(transactionId: string, amountCents?: number) {
-    const t = this.get(transactionId);
-    if (RELEASED_STATUSES.has(t.status)) return this.view(t);
+    const t = await this.get(transactionId);
+    if (RELEASED_STATUSES.has(t.status)) return toHold(t);
     if (t.status !== "authorized") {
       throw new RailError(`Release failed: Cannot submit for settlement unless status is authorized (${t.status})`, "91507", transactionId);
     }
+    let amount = t.amountCents;
     if (amountCents !== undefined) {
-      if (amountCents <= 0 || amountCents > t.amountCents) {
-        throw new RailError("Release failed: Settlement amount is too large", "91522", transactionId);
-      }
-      t.amountCents = amountCents;
+      if (amountCents <= 0 || amountCents > t.amountCents) throw new RailError("Release failed: Settlement amount is too large", "91522", transactionId);
+      amount = amountCents;
     }
-    t.status = "submitted_for_settlement";
-    return this.view(t);
+    await this.setStatus(t.id, "submitted_for_settlement", { amountCents: amount });
+    return toHold({ ...t, status: "submitted_for_settlement", amountCents: amount });
   }
 
   async void(transactionId: string) {
-    const t = this.get(transactionId);
-    if (t.status === "voided") return this.view(t);
+    const t = await this.get(transactionId);
+    if (t.status === "voided") return toHold(t);
     if (t.status !== "authorized" && t.status !== "submitted_for_settlement") {
       throw new RailError(`Void failed: Transaction can only be voided if status is authorized or submitted_for_settlement (${t.status})`, "91504", transactionId);
     }
-    t.status = "voided";
-    return this.view(t);
+    await this.setStatus(t.id, "voided");
+    return toHold({ ...t, status: "voided" });
   }
 
   async testSettle(transactionId: string) {
-    const t = this.get(transactionId);
-    if (t.status !== "submitted_for_settlement") {
-      throw new RailError(`Cannot settle a transaction that is ${t.status}`, "91507", transactionId);
-    }
-    t.status = "settled";
-    if (t.opensDispute) {
-      const d: FakeDispute = {
-        id: this.id("fdp"),
-        transactionId: t.transactionId,
-        status: "open",
-        reason: "product_unsatisfactory",
-        kind: "chargeback",
-        amountCents: t.amountCents,
-        replyByDate: new Date(this.now() + 20 * DAY).toISOString().slice(0, 10),
-        evidence: [],
-      };
-      store().disputes.set(d.id, d);
-    }
-    return this.view(t);
+    const t = await this.get(transactionId);
+    if (t.status !== "submitted_for_settlement") throw new RailError(`Cannot settle a transaction that is ${t.status}`, "91507", transactionId);
+    await this.setStatus(t.id, "settled");
+    if (t.opensDispute) await this.insertDispute(newFakeId("fdp"), t, "product_unsatisfactory");
+    return toHold({ ...t, status: "settled" });
+  }
+
+  private async insertDispute(id: string, t: TxnRow, reason: string) {
+    const db = await getDb();
+    const [exists] = await db.select().from(fakeDisputes).where(eq(fakeDisputes.id, id));
+    if (exists) return;
+    await db.insert(fakeDisputes).values({
+      id,
+      transactionId: t.id,
+      status: "open",
+      reason,
+      kind: "chargeback",
+      amountCents: t.amountCents,
+      replyByDate: new Date((await this.now()) + 20 * DAY).toISOString().slice(0, 10),
+      evidence: [],
+    });
+  }
+
+  private async dispute(disputeId: string): Promise<DisputeRow> {
+    const db = await getDb();
+    const [d] = await db.select().from(fakeDisputes).where(eq(fakeDisputes.id, disputeId));
+    if (!d) throw new RailError(`Dispute ${disputeId} not found`, "not_found");
+    return d;
   }
 
   async findDisputes(transactionId: string) {
-    return [...store().disputes.values()]
-      .filter((d) => d.transactionId === transactionId)
-      .map(({ evidence: _e, ...d }) => ({ ...d }));
+    const db = await getDb();
+    return (await db.select().from(fakeDisputes).where(eq(fakeDisputes.transactionId, transactionId))).map(toDispute);
   }
 
   async getDispute(disputeId: string) {
-    const d = store().disputes.get(disputeId);
-    if (!d) throw new RailError(`Dispute ${disputeId} not found`, "not_found");
-    const { evidence: _e, ...rest } = d;
-    return { ...rest };
+    return toDispute(await this.dispute(disputeId));
   }
 
   async addDisputeTextEvidence(disputeId: string, content: string) {
-    const d = store().disputes.get(disputeId);
-    if (!d) throw new RailError(`Dispute ${disputeId} not found`, "not_found");
+    const d = await this.dispute(disputeId);
     if (d.status !== "open") throw new RailError("Evidence can only be added to an open dispute", "95701");
-    const id = this.id("fev");
-    d.evidence.push({ id, content });
+    const id = newFakeId("fev");
+    const db = await getDb();
+    await db.update(fakeDisputes).set({ evidence: [...d.evidence, { id, content }] }).where(eq(fakeDisputes.id, d.id));
     return id;
   }
 
   async finalizeDispute(disputeId: string) {
-    const d = store().disputes.get(disputeId);
-    if (!d) throw new RailError(`Dispute ${disputeId} not found`, "not_found");
+    const d = await this.dispute(disputeId);
     if (d.status !== "open") throw new RailError("Only an open dispute can be finalized", "95702");
     // Mirrors the Braintree sandbox: the magic evidence value decides the outcome.
     const text = d.evidence.map((e) => e.content).join("\n");
-    d.status = text.includes("losing_evidence") ? "lost" : text.includes("compelling_evidence") ? "won" : "disputed";
-    return this.getDispute(disputeId);
+    const status = text.includes("losing_evidence") ? "lost" : text.includes("compelling_evidence") ? "won" : "disputed";
+    const db = await getDb();
+    await db.update(fakeDisputes).set({ status }).where(eq(fakeDisputes.id, d.id));
+    return toDispute({ ...d, status });
   }
 
   async parseWebhook(signature: string, payload: string): Promise<WebhookEvent> {
@@ -199,35 +216,23 @@ export class FakeRail implements PaymentRail {
     return sampleWithGateway(webhookGateway, kind, subjectId);
   }
 
-  // ---- fake-only controls, used by tests and the dev console ----
+  // ---- test-rail-only controls, used by tests and the sandbox tools panel ----
 
-  advanceClock(ms: number) {
-    store().clockOffset += ms;
+  async advanceClock(ms: number) {
+    const db = await getDb();
+    const [row] = await db.select().from(kv).where(eq(kv.key, CLOCK_KEY));
+    const next = String((row ? Number(row.value) : 0) + ms);
+    if (row) await db.update(kv).set({ value: next }).where(eq(kv.key, CLOCK_KEY));
+    else await db.insert(kv).values({ key: CLOCK_KEY, value: next });
   }
 
   /**
-   * Open a chargeback on a transaction, as Braintree's sample dispute_opened
-   * webhook describes it: the sample uses the same id for the dispute and the
-   * transaction, so the fake does too.
+   * Open a chargeback on a transaction the way Braintree's sample
+   * dispute_opened webhook describes it: the sample uses one id for the
+   * dispute and the transaction, so the test rail does too.
    */
-  openDisputeFor(transactionId: string): string {
-    const t = this.get(transactionId);
-    if (!store().disputes.has(transactionId)) {
-      store().disputes.set(transactionId, {
-        id: transactionId,
-        transactionId,
-        status: "open",
-        reason: "fraud",
-        kind: "chargeback",
-        amountCents: t.amountCents,
-        replyByDate: new Date(this.now() + 20 * DAY).toISOString().slice(0, 10),
-        evidence: [],
-      });
-    }
+  async openDisputeFor(transactionId: string): Promise<string> {
+    await this.insertDispute(transactionId, await this.get(transactionId), "fraud");
     return transactionId;
-  }
-
-  disputeIdsFor(transactionId: string): string[] {
-    return [...store().disputes.values()].filter((d) => d.transactionId === transactionId).map((d) => d.id);
   }
 }

@@ -1,5 +1,5 @@
 import { OperatorShell } from "@/components/app/operator-shell";
-import { requireOperator } from "@/lib/web/auth";
+import { requireWorkspace } from "@/lib/web/auth";
 import { SAMPLE_SCOPE } from "@/lib/sample";
 import { resolveModel } from "@/lib/ai/model";
 import { NewProjectForm } from "./new-project-form";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "New project" };
 
 export default async function NewProject() {
-  await requireOperator();
+  await requireWorkspace();
   return (
     <OperatorShell>
       <h1 className="text-2xl font-semibold tracking-tight">New project</h1>

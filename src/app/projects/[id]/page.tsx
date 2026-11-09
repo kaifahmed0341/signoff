@@ -11,18 +11,23 @@ import { getDb } from "@/lib/db";
 import { env, railMode } from "@/lib/env";
 import { sampleLinks } from "@/lib/sample";
 import { shareToken } from "@/lib/services/ids";
-import { ServiceError } from "@/lib/services/milestones";
-import { requireOperator } from "@/lib/web/auth";
+import { ServiceError, getOwnedProject, projectMilestones } from "@/lib/services/milestones";
+import { requireWorkspace } from "@/lib/web/auth";
+import { recoverStuckChecks } from "@/lib/ai/checker";
 import { day, money, refsOf, when } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
 import { DeliveryForm, DisputePanel, ReconcileButton, SandboxTools, ShareLink } from "./operator-controls";
 
 export const dynamic = "force-dynamic";
+// Server actions on this page start checks that keep running after the response (see after()).
+export const maxDuration = 300;
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireOperator();
+  const w = await requireWorkspace();
   const { id } = await params;
   const db = await getDb();
+  await getOwnedProject(db, w.id, id).catch(() => notFound());
+  await recoverStuckChecks(db, (await projectMilestones(db, id)).map((m) => m.id));
   const view = await loadProjectView(db, id).catch((e) => {
     if (e instanceof ServiceError && e.status === 404) notFound();
     throw e;

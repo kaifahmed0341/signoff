@@ -11,51 +11,79 @@ import { FakeRail } from "@/lib/payments/fake-rail";
 import { runCheck } from "@/lib/ai/checker";
 import { planFromScope, type PlannedProject } from "@/lib/ai/planner";
 import { createSampleProject } from "@/lib/sample";
-import { submitDelivery } from "@/lib/services/deliveries";
-import { approveAndSubmitDispute, handleWebhook, syncDisputes } from "@/lib/services/disputes";
+import { audit } from "@/lib/services/audit";
+import { MAX_FILE_BYTES, MAX_FILES, submitDelivery } from "@/lib/services/deliveries";
+import { approveAndSubmitDispute, getDisputeRow, handleWebhook, syncDisputes } from "@/lib/services/disputes";
 import {
   ServiceError,
   createProject,
-  getMilestone,
+  getOwnedMilestone,
+  getOwnedProject,
   reconcileProject,
   sendProject,
   type MilestoneDraft,
 } from "@/lib/services/milestones";
-import { endOperatorSession, isOperator, passcodeMatches, requireOperator, startOperatorSession } from "@/lib/web/auth";
-import { audit } from "@/lib/services/audit";
+import { consume } from "@/lib/services/usage";
+import { createDemoWorkspace, ensureOwnerWorkspace } from "@/lib/services/workspaces";
+import { currentWorkspace, endSession, passcodeLoginEnabled, passcodeMatches, requireWorkspace, startSession } from "@/lib/web/auth";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
 function fail(err: unknown): { ok: false; error: string } {
-  if (err instanceof ServiceError) return { ok: false, error: err.message };
   if (err instanceof Error) return { ok: false, error: err.message };
   return { ok: false, error: String(err) };
 }
 
+// ---------------------------------------------------------------- sessions
+
 export async function login(_prev: { error?: string } | undefined, form: FormData) {
+  if (!passcodeLoginEnabled()) return { error: "Passcode sign-in is off on this demo server. Use Try the live demo." };
   const code = String(form.get("passcode") ?? "");
   if (!passcodeMatches(code)) return { error: "That passcode is not right." };
-  await startOperatorSession();
+  const w = await ensureOwnerWorkspace(await getDb());
+  await startSession(w.id);
+  redirect("/dashboard");
+}
+
+/** Public demo: one click gives this browser its own private workspace with the sample project loaded. */
+export async function startDemo() {
+  if (!env().DEMO_MODE) redirect("/login");
+  const existing = await currentWorkspace();
+  if (!existing) {
+    const db = await getDb();
+    const w = await createDemoWorkspace(db);
+    await startSession(w.id);
+    await createSampleProject(db, w.id);
+  }
   redirect("/dashboard");
 }
 
 export async function logout() {
-  await endOperatorSession();
+  await endSession();
   redirect("/");
 }
 
+// ---------------------------------------------------------------- projects
+
 export async function loadSampleProject() {
-  await requireOperator();
-  const db = await getDb();
-  const p = await createSampleProject(db);
+  const w = await requireWorkspace();
+  const p = await createSampleProject(await getDb(), w.id);
   redirect(`/projects/${p.id}`);
 }
 
 export async function draftPlan(scope: string): Promise<ActionResult<PlannedProject>> {
-  await requireOperator();
+  const w = await requireWorkspace();
   if (scope.trim().length < 40) return { ok: false, error: "Paste the full scope of work, at least a few sentences." };
+  if (scope.length > 30_000) return { ok: false, error: "That scope is over 30,000 characters. Paste the part that describes the work." };
   try {
-    return { ok: true, data: await planFromScope(scope.slice(0, 30_000)) };
+    const db = await getDb();
+    return {
+      ok: true,
+      data: await planFromScope(scope, async () => {
+        const r = await consume(db, w, "ai_plan");
+        return r.ok ? null : r.reason;
+      }),
+    };
   } catch (err) {
     return fail(err);
   }
@@ -69,15 +97,18 @@ export async function saveProject(input: {
   milestones: MilestoneDraft[];
   send: boolean;
 }): Promise<ActionResult<{ id: string }>> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
     const db = await getDb();
     if (!input.name.trim() || !input.clientName.trim()) throw new ServiceError("Name the project and the client");
+    if (input.milestones.length === 0) throw new ServiceError("Draft or add at least one milestone");
+    if (input.milestones.length > 8) throw new ServiceError("Keep it to eight milestones or fewer");
     const p = await createProject(db, {
-      name: input.name.trim(),
-      clientName: input.clientName.trim(),
-      clientEmail: input.clientEmail?.trim() || null,
-      scope: input.scope,
+      workspaceId: w.id,
+      name: input.name.trim().slice(0, 120),
+      clientName: input.clientName.trim().slice(0, 120),
+      clientEmail: input.clientEmail?.trim().slice(0, 200) || null,
+      scope: input.scope.slice(0, 30_000),
       currency: env().CURRENCY,
       milestones: input.milestones,
     });
@@ -89,15 +120,19 @@ export async function saveProject(input: {
 }
 
 export async function sendProjectAction(projectId: string): Promise<ActionResult> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
-    await sendProject(await getDb(), projectId);
+    const db = await getDb();
+    await getOwnedProject(db, w.id, projectId);
+    await sendProject(db, projectId);
     revalidatePath(`/projects/${projectId}`);
     return { ok: true };
   } catch (err) {
     return fail(err);
   }
 }
+
+// ---------------------------------------------------------------- deliveries
 
 async function fileToText(f: File): Promise<{ name: string; mime: string; text: string }> {
   const buf = new Uint8Array(await f.arrayBuffer());
@@ -109,24 +144,23 @@ async function fileToText(f: File): Promise<{ name: string; mime: string; text: 
 }
 
 export async function submitDeliveryAction(form: FormData): Promise<ActionResult> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
     const db = await getDb();
     const milestoneId = String(form.get("milestoneId"));
+    const m = await getOwnedMilestone(db, w.id, milestoneId);
     const links = String(form.get("links") ?? "").split(/\s+/).filter(Boolean);
-    const notes = String(form.get("notes") ?? "");
+    const notes = String(form.get("notes") ?? "").slice(0, 4000);
+    const uploads = form.getAll("files").filter((x): x is File => x instanceof File && x.size > 0);
+    if (uploads.length > MAX_FILES) throw new ServiceError(`Attach at most ${MAX_FILES} files`);
     const files: { name: string; mime: string; text: string }[] = [];
-    for (const entry of form.getAll("files")) {
-      if (entry instanceof File && entry.size > 0) {
-        if (entry.size > 5_000_000) throw new ServiceError(`${entry.name} is over 5 MB`);
-        files.push(await fileToText(entry));
-      }
+    for (const f of uploads) {
+      if (f.size > MAX_FILE_BYTES) throw new ServiceError(`${f.name} is over ${MAX_FILE_BYTES / 1_000_000} MB`);
+      files.push(await fileToText(f));
     }
     const deliveryId = await submitDelivery(db, milestoneId, { links, notes, files });
-    const m = await getMilestone(db, milestoneId);
-    after(async () => {
-      await runCheck(db, milestoneId, deliveryId);
-    });
+    // The check runs after the response is sent; the page polls its progress.
+    after(() => runCheck(db, milestoneId, deliveryId));
     revalidatePath(`/projects/${m.projectId}`);
     return { ok: true };
   } catch (err) {
@@ -134,10 +168,13 @@ export async function submitDeliveryAction(form: FormData): Promise<ActionResult
   }
 }
 
+// ---------------------------------------------------------------- money and disputes
+
 export async function reconcileAction(projectId: string): Promise<ActionResult<string[]>> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
     const db = await getDb();
+    await getOwnedProject(db, w.id, projectId);
     const rail = getRail();
     const res = await reconcileProject(db, rail, projectId);
     for (const r of res) if (r.local === "released") await syncDisputes(db, rail, r.milestoneId);
@@ -149,11 +186,12 @@ export async function reconcileAction(projectId: string): Promise<ActionResult<s
 }
 
 export async function approveDisputeAction(disputeId: string, pack: string): Promise<ActionResult> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
     const db = await getDb();
-    const d = await approveAndSubmitDispute(db, getRail(), disputeId, pack);
-    const m = await getMilestone(db, d.milestoneId);
+    const d = await getDisputeRow(db, disputeId);
+    const m = await getOwnedMilestone(db, w.id, d.milestoneId);
+    await approveAndSubmitDispute(db, getRail(), disputeId, pack.slice(0, 20_000));
     revalidatePath(`/projects/${m.projectId}`);
     return { ok: true };
   } catch (err) {
@@ -163,12 +201,12 @@ export async function approveDisputeAction(disputeId: string, pack: string): Pro
 
 /** Sandbox and test rail only: settle a released transaction, then look for disputes. */
 export async function settleForTestingAction(milestoneId: string): Promise<ActionResult> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
     const db = await getDb();
     const rail = getRail();
     if (rail.mode === "production") throw new ServiceError("Not available in production");
-    const m = await getMilestone(db, milestoneId);
+    const m = await getOwnedMilestone(db, w.id, milestoneId);
     if (!m.transactionId) throw new ServiceError("No transaction");
     const hold = await rail.testSettle(m.transactionId);
     await audit(db, { projectId: m.projectId, milestoneId, actor: "operator", type: "sandbox.settled", message: `Sandbox helper settled the transaction (now ${hold.status})`, data: { transactionId: hold.transactionId } });
@@ -182,18 +220,18 @@ export async function settleForTestingAction(milestoneId: string): Promise<Actio
 }
 
 /**
- * Test rail only: build a correctly signed dispute_opened webhook
- * with the Braintree SDK and send it through the real webhook handler.
+ * Test rail only: open a chargeback, build a correctly signed dispute_opened
+ * webhook with the Braintree SDK, and send it through the real handler.
  */
 export async function simulateDisputeWebhookAction(milestoneId: string): Promise<ActionResult<string>> {
-  await requireOperator();
+  const w = await requireWorkspace();
   try {
     const db = await getDb();
     const rail = getRail();
-    if (rail.mode !== "fake") throw new ServiceError("On the Braintree sandbox, pay with the dispute test card 4023898493988028 and use Settle instead");
-    const m = await getMilestone(db, milestoneId);
+    if (!(rail instanceof FakeRail)) throw new ServiceError("On the Braintree sandbox, pay with the dispute test card 4023898493988028 and use Settle instead");
+    const m = await getOwnedMilestone(db, w.id, milestoneId);
     if (!m.transactionId || m.state !== "released") throw new ServiceError("Only a released milestone can be disputed");
-    if (rail instanceof FakeRail) rail.openDisputeFor(m.transactionId);
+    await rail.openDisputeFor(m.transactionId);
     const s = await rail.sampleWebhook("dispute_opened", m.transactionId);
     const r = await handleWebhook(db, rail, s.signature, s.payload);
     revalidatePath(`/projects/${m.projectId}`);
@@ -201,8 +239,4 @@ export async function simulateDisputeWebhookAction(milestoneId: string): Promise
   } catch (err) {
     return fail(err);
   }
-}
-
-export async function operatorStatus() {
-  return isOperator();
 }

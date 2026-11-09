@@ -12,10 +12,12 @@ import { verifyShareToken } from "@/lib/services/ids";
 import { centsToAmount } from "@/lib/payments/rail";
 import { day, money } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
+import { recoverStuckChecks } from "@/lib/ai/checker";
 import { DecisionPanel } from "./decision-panel";
 import { FundPanel } from "./fund-panel";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 export const metadata = { title: "Your project", robots: { index: false } };
 
 export default async function ClientPage({ params }: { params: Promise<{ id: string; token: string }> }) {
@@ -23,6 +25,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   if (!verifyShareToken(id, token)) notFound();
   const db = await getDb();
   const { project, milestones } = await loadProjectView(db, id).catch(() => notFound());
+  await recoverStuckChecks(db, milestones.filter((m) => m.state === "checking").map((m) => m.id));
   if (!project.sentAt) notFound();
   const rail = railMode();
   const total = milestones.reduce((a, m) => a + m.amountCents, 0);

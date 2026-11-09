@@ -28,6 +28,22 @@ const schema = z.object({
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
   GOOGLE_MODEL: z.string().default("gemini-3.5-flash"),
   GITHUB_TOKEN: z.string().optional(),
+
+  // Public demo: each visitor gets a private workspace with one click.
+  DEMO_MODE: z
+    .enum(["true", "false", "1", "0"])
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
+  DEMO_VIDEO_URL: z.string().url().optional(),
+  REPO_URL: z.string().url().default("https://github.com/kaifahmed0341/signoff"),
+
+  // Daily caps. Per-workspace caps apply to demo workspaces; global caps to the whole server.
+  LIMIT_AI_CHECKS_PER_WORKSPACE: z.coerce.number().int().positive().default(15),
+  LIMIT_AI_CHECKS_GLOBAL: z.coerce.number().int().positive().default(400),
+  LIMIT_AI_PLANS_PER_WORKSPACE: z.coerce.number().int().positive().default(10),
+  LIMIT_AI_PLANS_GLOBAL: z.coerce.number().int().positive().default(300),
+  LIMIT_FETCHES_PER_WORKSPACE: z.coerce.number().int().positive().default(150),
+  LIMIT_FETCHES_GLOBAL: z.coerce.number().int().positive().default(5000),
 });
 
 export type Env = z.infer<typeof schema>;

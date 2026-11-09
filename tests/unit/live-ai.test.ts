@@ -9,6 +9,7 @@ import { createSampleProject, sampleLinks, SAMPLE_SCOPE } from "@/lib/sample";
 import { submitDelivery } from "@/lib/services/deliveries";
 import { fundMilestone, latestCheck, projectMilestones } from "@/lib/services/milestones";
 import { FAKE_NONCES } from "@/lib/payments/fake-rail";
+import { OWNER_WORKSPACE_ID as OWNER } from "@/lib/services/workspaces";
 import { freshWorld, startStaticServer } from "./helpers";
 
 /**
@@ -34,7 +35,7 @@ describe.runIf(run)("live model", () => {
 
   it("checks v1 and v2 of the sample deliverable", async () => {
     const { db, rail } = await freshWorld({ APP_URL: origin, GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY });
-    const p = await createSampleProject(db);
+    const p = await createSampleProject(db, OWNER);
     const [m] = await projectMilestones(db, p.id);
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
     for (const v of [1, 2] as const) {

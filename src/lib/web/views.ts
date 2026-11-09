@@ -44,10 +44,12 @@ export async function loadProjectView(db: DB, projectId: string) {
   };
 }
 
-export async function loadDashboard(db: DB) {
-  const ps = await db.select().from(projects).orderBy(desc(projects.createdAt));
-  const ms = await db.select().from(milestones);
-  const disp = await db.select().from(disputes);
+export async function loadDashboard(db: DB, workspaceId: string) {
+  const ps = await db.select().from(projects).where(eq(projects.workspaceId, workspaceId)).orderBy(desc(projects.createdAt));
+  const pids = ps.map((p) => p.id);
+  const ms = pids.length ? await db.select().from(milestones).where(inArray(milestones.projectId, pids)) : [];
+  const mids = ms.map((m) => m.id);
+  const disp = mids.length ? await db.select().from(disputes).where(inArray(disputes.milestoneId, mids)) : [];
   return { projects: ps, milestones: ms, disputes: disp };
 }
 

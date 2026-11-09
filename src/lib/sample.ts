@@ -26,9 +26,10 @@ export function sampleLinks(version: 1 | 2): string[] {
   return [`${new URL(env().APP_URL).origin}/samples/larkspur-v${version}/index.html`];
 }
 
-export async function createSampleProject(db: DB) {
+export async function createSampleProject(db: DB, workspaceId: string) {
   const planned = finalizePlan(scriptedPlan(SAMPLE_SCOPE), SAMPLE_SCOPE, "scripted");
   const project = await createProject(db, {
+    workspaceId,
     name: "Larkspur Pottery Studio website",
     clientName: "Larkspur Pottery Studio",
     clientEmail: null,

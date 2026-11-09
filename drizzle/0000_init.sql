@@ -19,6 +19,8 @@ CREATE TABLE `checks` (
 	`summary` text,
 	`error` text,
 	`dropped_evidence` integer DEFAULT 0 NOT NULL,
+	`progress` text,
+	`fallback_reason` text,
 	`started_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`finished_at` integer,
 	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -72,6 +74,35 @@ CREATE TABLE `disputes` (
 	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `fake_disputes` (
+	`id` text PRIMARY KEY NOT NULL,
+	`transaction_id` text NOT NULL,
+	`status` text NOT NULL,
+	`reason` text,
+	`kind` text,
+	`amount_cents` integer NOT NULL,
+	`reply_by_date` text,
+	`evidence` text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `fake_transactions` (
+	`id` text PRIMARY KEY NOT NULL,
+	`order_id` text NOT NULL,
+	`status` text NOT NULL,
+	`amount_cents` integer NOT NULL,
+	`currency` text NOT NULL,
+	`instrument` text NOT NULL,
+	`payer_label` text,
+	`authorization_expires_at` integer NOT NULL,
+	`created_at` integer NOT NULL,
+	`opens_dispute` integer DEFAULT false NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `kv` (
+	`key` text PRIMARY KEY NOT NULL,
+	`value` text NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `milestones` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -106,6 +137,7 @@ CREATE INDEX `milestones_project_idx` ON `milestones` (`project_id`);--> stateme
 CREATE INDEX `milestones_txn_idx` ON `milestones` (`transaction_id`);--> statement-breakpoint
 CREATE TABLE `projects` (
 	`id` text PRIMARY KEY NOT NULL,
+	`workspace_id` text NOT NULL,
 	`name` text NOT NULL,
 	`client_name` text NOT NULL,
 	`client_email` text,
@@ -113,7 +145,8 @@ CREATE TABLE `projects` (
 	`currency` text DEFAULT 'USD' NOT NULL,
 	`sent_at` integer,
 	`is_sample` integer DEFAULT false NOT NULL,
-	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL
+	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
 CREATE TABLE `tool_calls` (
@@ -125,6 +158,12 @@ CREATE TABLE `tool_calls` (
 	`output` text NOT NULL,
 	`ok` integer NOT NULL,
 	FOREIGN KEY (`check_id`) REFERENCES `checks`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE TABLE `usage_counters` (
+	`key` text PRIMARY KEY NOT NULL,
+	`count` integer DEFAULT 0 NOT NULL,
+	`day` text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `verdicts` (
@@ -149,4 +188,10 @@ CREATE TABLE `webhook_events` (
 	`received_at` integer DEFAULT (unixepoch() * 1000) NOT NULL
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `webhook_event_id_idx` ON `webhook_events` (`id`);
+CREATE UNIQUE INDEX `webhook_event_id_idx` ON `webhook_events` (`id`);--> statement-breakpoint
+CREATE TABLE `workspaces` (
+	`id` text PRIMARY KEY NOT NULL,
+	`kind` text NOT NULL,
+	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`last_seen_at` integer DEFAULT (unixepoch() * 1000) NOT NULL
+);

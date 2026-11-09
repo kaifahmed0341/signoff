@@ -46,6 +46,19 @@ export async function getProject(db: DB, projectId: string): Promise<Project> {
   return p;
 }
 
+/** Operator access: the project must belong to the caller's workspace. */
+export async function getOwnedProject(db: DB, workspaceId: string, projectId: string): Promise<Project> {
+  const p = await getProject(db, projectId);
+  if (p.workspaceId !== workspaceId) throw new ServiceError("Project not found", 404);
+  return p;
+}
+
+export async function getOwnedMilestone(db: DB, workspaceId: string, milestoneId: string): Promise<Milestone> {
+  const m = await getMilestone(db, milestoneId);
+  await getOwnedProject(db, workspaceId, m.projectId);
+  return m;
+}
+
 export async function getMilestone(db: DB, milestoneId: string): Promise<Milestone> {
   const [m] = await db.select().from(milestones).where(eq(milestones.id, milestoneId));
   if (!m) throw new ServiceError("Milestone not found", 404);
@@ -106,11 +119,12 @@ export async function applyEvent(
 
 export async function createProject(
   db: DB,
-  input: { name: string; clientName: string; clientEmail?: string | null; scope: string; currency: string; isSample?: boolean; milestones: MilestoneDraft[] },
+  input: { workspaceId: string; name: string; clientName: string; clientEmail?: string | null; scope: string; currency: string; isSample?: boolean; milestones: MilestoneDraft[] },
 ): Promise<Project> {
   const projectId = newId("prj");
   await db.insert(projects).values({
     id: projectId,
+    workspaceId: input.workspaceId,
     name: input.name,
     clientName: input.clientName,
     clientEmail: input.clientEmail ?? null,

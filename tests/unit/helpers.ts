@@ -4,7 +4,8 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { setEnvForTests, type Env } from "@/lib/env";
 import { createTestDb } from "@/lib/db";
-import { FakeRail, resetFakeRail } from "@/lib/payments/fake-rail";
+import { FakeRail } from "@/lib/payments/fake-rail";
+import { createDemoWorkspace, ensureOwnerWorkspace } from "@/lib/services/workspaces";
 import { setRailForTests } from "@/lib/payments";
 import { setModelForTests } from "@/lib/ai/model";
 
@@ -29,12 +30,13 @@ export async function startStaticServer(): Promise<{ server: Server; origin: str
 
 export async function freshWorld(overrides: Partial<Env> = {}) {
   setEnvForTests(overrides);
-  resetFakeRail();
   const rail = new FakeRail();
   setRailForTests(rail);
   setModelForTests(undefined);
   const db = await createTestDb();
-  return { db, rail };
+  const owner = await ensureOwnerWorkspace(db);
+  const demo = await createDemoWorkspace(db);
+  return { db, rail, owner, demo };
 }
 
 /** Change the last character so the signature is always different. */

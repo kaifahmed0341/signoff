@@ -1,11 +1,19 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { timingSafeEqual } from "node:crypto";
+import { getDb } from "../db";
+import type { Workspace } from "../db/schema";
 import { env } from "../env";
-import { sign, verifySignature, verifyShareToken } from "../services/ids";
+import { sign, verifySignature } from "../services/ids";
+import { getWorkspace, touchWorkspace } from "../services/workspaces";
 
-const COOKIE = "signoff_operator";
-const MAX_AGE_S = 60 * 60 * 24 * 7;
+/**
+ * The operator session is a signed cookie naming a workspace. Self-hosted
+ * installs sign in with a passcode to the one owner workspace. The public demo
+ * gives each visitor a private demo workspace with one click.
+ */
+const COOKIE = "signoff_session";
+const MAX_AGE_S = 60 * 60 * 24 * 30;
 
 export function passcodeMatches(input: string): boolean {
   const a = Buffer.from(input);
@@ -13,9 +21,29 @@ export function passcodeMatches(input: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export async function startOperatorSession() {
-  const issued = String(Date.now());
-  (await cookies()).set(COOKIE, `${issued}.${sign("operator-session", issued)}`, {
+/** In demo mode the passcode only works if it was changed from the public default. */
+export function passcodeLoginEnabled(): boolean {
+  const e = env();
+  return !e.DEMO_MODE || e.OPERATOR_PASSCODE !== "signoff-demo";
+}
+
+export function sessionValue(workspaceId: string, issued = Date.now()): string {
+  const body = `${workspaceId}.${issued}`;
+  return `${body}.${sign("operator-session", body)}`;
+}
+
+export function parseSession(raw: string | undefined, now = Date.now()): string | null {
+  if (!raw) return null;
+  const parts = raw.split(".");
+  if (parts.length !== 3) return null;
+  const [workspaceId, issued, sig] = parts;
+  if (!verifySignature("operator-session", `${workspaceId}.${issued}`, sig)) return null;
+  if (now - Number(issued) > MAX_AGE_S * 1000) return null;
+  return workspaceId;
+}
+
+export async function startSession(workspaceId: string) {
+  (await cookies()).set(COOKIE, sessionValue(workspaceId), {
     httpOnly: true,
     sameSite: "lax",
     secure: env().APP_URL.startsWith("https://"),
@@ -24,22 +52,21 @@ export async function startOperatorSession() {
   });
 }
 
-export async function endOperatorSession() {
+export async function endSession() {
   (await cookies()).delete(COOKIE);
 }
 
-export async function isOperator(): Promise<boolean> {
-  const raw = (await cookies()).get(COOKIE)?.value;
-  if (!raw) return false;
-  const [issued, sig] = raw.split(".");
-  if (!issued || !sig || !verifySignature("operator-session", issued, sig)) return false;
-  return Date.now() - Number(issued) < MAX_AGE_S * 1000;
+export async function currentWorkspace(): Promise<Workspace | null> {
+  const id = parseSession((await cookies()).get(COOKIE)?.value);
+  if (!id) return null;
+  const db = await getDb();
+  const w = await getWorkspace(db, id);
+  if (w) await touchWorkspace(db, w);
+  return w;
 }
 
-export async function requireOperator() {
-  if (!(await isOperator())) redirect("/login");
-}
-
-export function requireShareToken(projectId: string, token: string | null | undefined) {
-  if (!token || !verifyShareToken(projectId, token)) throw new Response("This link is not valid", { status: 403 });
+export async function requireWorkspace(): Promise<Workspace> {
+  const w = await currentWorkspace();
+  if (!w) redirect(env().DEMO_MODE ? "/" : "/login");
+  return w;
 }
