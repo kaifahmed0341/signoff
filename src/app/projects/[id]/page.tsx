@@ -96,7 +96,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                   {m.criteria.map((c) => <li key={c.id} className="flex gap-2"><span className="text-muted-foreground">&bull;</span>{c.text}</li>)}
                 </ul>
               )}
-              {m.state === "awaiting_funding" && <p className="text-sm text-muted-foreground">Waiting for the client to place a hold from their link.</p>}
+              {m.state === "awaiting_funding" && (
+                <p className="text-sm text-muted-foreground">
+                  Waiting for the client to place a hold from their link.
+                  {project.isSample && i === 0 && <span className="text-foreground"> Next: click <strong>Open as client</strong> above and fund this milestone. In the demo you play both sides.</span>}
+                </p>
+              )}
               {(m.state === "funded" || m.state === "changes_requested") && (
                 <DeliveryForm
                   milestoneId={m.id}
@@ -105,7 +110,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               )}
               <EvidenceReport m={m} />
               {m.check?.status === "failed" && m.delivery && (m.state === "funded" || m.state === "changes_requested") && <RerunCheck milestoneId={m.id} />}
-              {m.state === "in_review" && <p className="text-sm text-muted-foreground">The client has the report and decides from their link.</p>}
+              {m.state === "in_review" && (
+                <p className="text-sm text-muted-foreground">
+                  The client has the report and decides from their link.
+                  {project.isSample && <span className="text-foreground"> Next: open the client link to read the evidence and decide.</span>}
+                </p>
+              )}
               {m.state === "released" && (
                 <div className="space-y-3">
                   <Link href={`/receipt/${m.id}?t=${shareTokenFor(project)}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"><Receipt className="size-4" /> Receipt {m.receiptNumber}</Link>

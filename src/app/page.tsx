@@ -86,8 +86,8 @@ export default async function Home() {
 
         <section className="border-y bg-card">
           <div className="mx-auto max-w-6xl px-4 py-10 grid md:grid-cols-[1fr_1fr_1.2fr] gap-8 items-start">
-            <Stat value="71%" label="of US freelancers have had trouble getting paid at some point in their career." />
-            <Stat value="1 in 2" label="had trouble collecting payment in a single year, 2014." />
+            <Stat value="71%" label="of US freelancers surveyed had trouble getting paid at some point in their career." />
+            <Stat value="1 in 2" label="had trouble collecting payment in the year before the survey, 2014." />
             <div className="text-sm text-muted-foreground">
               <p>
                 Clients will not send a deposit to someone they just met, and freelancers chase invoices for work that is already done. A payment hold fixes the first half. Signoff adds a fair, fast way to decide the work is accepted.

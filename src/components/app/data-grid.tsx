@@ -22,7 +22,8 @@ const theme = themeQuartz.withParams({
  * for a long one. The grid scrolls sideways inside its own box on a phone,
  * so it never widens the page.
  */
-export function DataGrid<T>({ rows, columns, quickFilter, empty = "Nothing here yet" }: { rows: T[]; columns: ColDef<T>[]; quickFilter?: string; empty?: string }) {
+/** Columns listed in `narrowHidden` are hidden when the grid is narrower than 640 pixels. */
+export function DataGrid<T>({ rows, columns, quickFilter, empty = "Nothing here yet", narrowHidden = [] }: { rows: T[]; columns: ColDef<T>[]; quickFilter?: string; empty?: string; narrowHidden?: string[] }) {
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden">
       <AgGridReact<T>
@@ -38,7 +39,10 @@ export function DataGrid<T>({ rows, columns, quickFilter, empty = "Nothing here 
         defaultColDef={{ sortable: true, resizable: true, filter: true, flex: 1, minWidth: 110 }}
         // Rows with wrapped text are measured once fonts and styles have loaded, so a second line is never clipped.
         onFirstDataRendered={(e) => remeasure(e.api)}
-        onGridSizeChanged={(e) => e.api.resetRowHeights()}
+        onGridSizeChanged={(e) => {
+          if (narrowHidden.length) e.api.setColumnsVisible(narrowHidden, e.clientWidth >= 640);
+          e.api.resetRowHeights();
+        }}
         animateRows
         suppressCellFocus
         enableCellTextSelection

@@ -51,7 +51,7 @@ export function Ledger({ rows }: { rows: LedgerRow[] }) {
   return (
     <div className="space-y-3">
       <Input placeholder="Filter the ledger" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" aria-label="Filter the ledger" />
-      <DataGrid rows={rows} columns={columns} quickFilter={q} empty="No milestones yet" />
+      <DataGrid rows={rows} columns={columns} quickFilter={q} empty="No milestones yet" narrowHidden={["project", "client", "held", "released", "payer", "expires", "transactionId", "disputes"]} />
     </div>
   );
 }

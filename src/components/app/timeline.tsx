@@ -44,5 +44,5 @@ export function Timeline({ rows }: { rows: TimelineRow[] }) {
     { field: "message", headerName: "What happened", minWidth: 280, flex: 3, autoHeight: true, cellRenderer: What, getQuickFilterText: (p) => `${p.data!.message} ${p.data!.type} ${p.data!.milestone}` },
     { field: "refs", headerName: "Braintree and check ids", minWidth: 200, flex: 1.4, autoHeight: true, cellRenderer: Refs },
   ];
-  return <DataGrid rows={rows} columns={columns} empty="No events yet" />;
+  return <DataGrid rows={rows} columns={columns} empty="No events yet" narrowHidden={["actor", "refs"]} />;
 }

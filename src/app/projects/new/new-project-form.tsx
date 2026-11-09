@@ -73,7 +73,7 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
           <Label htmlFor="scope">Scope of work</Label>
           <button type="button" className="text-xs text-primary hover:underline" onClick={() => { setScope(sampleScope); setClient("Larkspur Pottery Studio"); }}>Use the sample scope</button>
         </div>
-        <Textarea id="scope" value={scope} onChange={(e) => setScope(e.target.value)} rows={16} placeholder="Paste the scope, proposal or statement of work" className="font-mono text-xs" />
+        <Textarea id="scope" value={scope} onChange={(e) => setScope(e.target.value)} rows={16} placeholder="Paste the scope, proposal or statement of work" className="font-mono text-xs min-h-56 lg:min-h-96" />
         <Button onClick={draft} disabled={drafting || scope.trim().length < 40} className="w-full" size="lg">
           <Sparkles /> {drafting ? "Drafting milestones" : "Draft milestones"}
         </Button>

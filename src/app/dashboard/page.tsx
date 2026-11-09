@@ -58,6 +58,18 @@ export default async function Dashboard() {
         </div>
       </div>
 
+      {w.kind === "demo" && (
+        <div className="mt-6 rounded-xl border bg-card p-4 sm:p-5">
+          <div className="text-sm font-medium">Start here</div>
+          <ol className="mt-2 grid gap-2 sm:grid-cols-4 text-sm text-muted-foreground">
+            <li><span className="font-medium text-foreground">1.</span> Open the sample project below. You are the freelancer.</li>
+            <li><span className="font-medium text-foreground">2.</span> Click <span className="text-foreground">Open as client</span> and place a hold. Now you are the client.</li>
+            <li><span className="font-medium text-foreground">3.</span> Back as the freelancer, submit a sample delivery. Try the one with a cheat.</li>
+            <li><span className="font-medium text-foreground">4.</span> As the client, read the evidence and sign off or ask for changes.</li>
+          </ol>
+        </div>
+      )}
+
       <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="Held for you now" value={money(held, currency)} hint="Authorized, not yet charged" />
         <Stat label="Released to you" value={money(released, currency)} hint="Submitted for settlement" />
