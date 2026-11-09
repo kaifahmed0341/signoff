@@ -22,8 +22,12 @@ A second page with prices for every class.
 - The prices page links back to the landing page.
 `;
 
-export function sampleLinks(version: 1 | 2): string[] {
-  return [`${new URL(env().APP_URL).origin}/samples/larkspur-v${version}/index.html`];
+export type SampleVersion = 1 | 2 | "cheat";
+
+/** v1 misses two criteria; "cheat" is v1 plus hidden text, a pasted requirement and an injected instruction; v2 passes. */
+export function sampleLinks(version: SampleVersion): string[] {
+  const path = version === "cheat" ? "larkspur-v1-cheat" : `larkspur-v${version}`;
+  return [`${new URL(env().APP_URL).origin}/samples/${path}/index.html`];
 }
 
 export async function createSampleProject(db: DB, workspaceId: string) {

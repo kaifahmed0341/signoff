@@ -17,7 +17,9 @@ import { MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_UPLOAD_BYTES, submitDelivery } fro
 import { approveAndSubmitDispute, getDisputeRow, handleWebhook, syncDisputes } from "@/lib/services/disputes";
 import {
   ServiceError,
+  applyEvent,
   createProject,
+  latestDelivery,
   getOwnedMilestone,
   getOwnedProject,
   reconcileProject,
@@ -169,6 +171,23 @@ export async function submitDeliveryAction(form: FormData): Promise<ActionResult
   }
 }
 
+/** Runs the checker again on the latest delivery, for when a check failed or timed out. */
+export async function rerunCheckAction(milestoneId: string): Promise<ActionResult> {
+  const w = await requireWorkspace();
+  try {
+    const db = await getDb();
+    const m = await getOwnedMilestone(db, w.id, milestoneId);
+    const d = await latestDelivery(db, milestoneId);
+    if (!d) throw new ServiceError("There is no delivery to check yet");
+    await applyEvent(db, m, "SUBMIT_DELIVERY");
+    after(() => runCheck(db, milestoneId, d.id));
+    revalidatePath(`/projects/${m.projectId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
 // ---------------------------------------------------------------- money and disputes
 
 export async function rotateLinkAction(projectId: string): Promise<ActionResult> {
@@ -245,8 +264,8 @@ export async function simulateDisputeWebhookAction(milestoneId: string): Promise
     if (!(rail instanceof FakeRail)) throw new ServiceError("On the Braintree sandbox, pay with the dispute test card 4023898493988028 and use Settle instead");
     const m = await getOwnedMilestone(db, w.id, milestoneId);
     if (!m.transactionId || m.state !== "released") throw new ServiceError("Only a released milestone can be disputed");
-    await rail.openDisputeFor(m.transactionId);
-    const s = await rail.sampleWebhook("dispute_opened", m.transactionId);
+    const disputeId = await rail.openDisputeFor(m.transactionId);
+    const s = await rail.disputeWebhook("dispute_opened", disputeId);
     const r = await handleWebhook(db, rail, s.signature, s.payload);
     revalidatePath(`/projects/${m.projectId}`);
     return { ok: true, data: r.outcome };

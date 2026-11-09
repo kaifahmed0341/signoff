@@ -20,7 +20,7 @@ export default function LoginPage() {
           {passcodeLoginEnabled() ? (
             <>
               <h1 className="text-lg font-semibold">Operator sign in</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Signoff is single-tenant. The operator is the freelancer or agency running it.</p>
+              <p className="mt-1 text-sm text-muted-foreground">This install belongs to one freelancer or agency, the operator. Clients never sign in: they use the link the operator sends.</p>
               <LoginForm demoHint={showHint} />
             </>
           ) : (

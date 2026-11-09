@@ -236,13 +236,46 @@ export class FakeRail implements PaymentRail {
     else await db.insert(kv).values({ key: CLOCK_KEY, value: next });
   }
 
-  /**
-   * Open a chargeback on a transaction the way Braintree's sample
-   * dispute_opened webhook describes it: the sample uses one id for the
-   * dispute and the transaction, so the test rail does too.
-   */
+  /** Open a chargeback on a transaction, with its own dispute id. Returns the dispute id. */
   async openDisputeFor(transactionId: string): Promise<string> {
-    await this.insertDispute(transactionId, await this.get(transactionId), "fraud");
-    return transactionId;
+    const existing = await this.findDisputes(transactionId);
+    if (existing.length) return existing[0].id;
+    const id = newFakeId("fdp");
+    await this.insertDispute(id, await this.get(transactionId), "product_unsatisfactory");
+    return id;
+  }
+
+  /**
+   * A dispute webhook carrying this rail's real dispute values, signed with the
+   * test rail's webhook key the same way Braintree signs its own.
+   */
+  async disputeWebhook(kind: string, disputeId: string): Promise<{ signature: string; payload: string }> {
+    const d = await this.dispute(disputeId);
+    const t = await this.get(d.transactionId);
+    const amount = (d.amountCents / 100).toFixed(2);
+    const now = new Date(await this.now());
+    const xml = `<notification>
+    <timestamp type="datetime">${now.toISOString().replace(/\.\d+Z$/, "Z")}</timestamp>
+    <kind>${kind}</kind>
+    <subject><dispute>
+  <amount>${amount}</amount>
+  <amount-disputed>${amount}</amount-disputed>
+  <currency-iso-code>${t.currency}</currency-iso-code>
+  <received-date type="date">${now.toISOString().slice(0, 10)}</received-date>
+  <reply-by-date type="date">${d.replyByDate ?? ""}</reply-by-date>
+  <kind>${d.kind ?? "chargeback"}</kind>
+  <status>${d.status}</status>
+  <reason>${d.reason ?? "general"}</reason>
+  <id>${d.id}</id>
+  <transaction>
+    <id>${t.id}</id>
+    <amount>${(t.amountCents / 100).toFixed(2)}</amount>
+  </transaction>
+</dispute></subject>
+</notification>`;
+    const payload = Buffer.from(xml).toString("base64") + "\n";
+    const gw = webhookGateway();
+    const signature = (gw.webhookTesting as unknown as { sampleSignature: (p: string) => string }).sampleSignature(payload);
+    return { signature, payload };
   }
 }

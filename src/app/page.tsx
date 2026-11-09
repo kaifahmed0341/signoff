@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Ban, FileSearch, Lock, PlayCircle, Quote, ShieldCheck, Undo2 } from "lucide-react";
+import { ArrowRight, Ban, FileSearch, Lock, PlayCircle, Quote, Scale, ShieldCheck, Undo2 } from "lucide-react";
 import { Brand } from "@/components/app/brand";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { env } from "@/lib/env";
@@ -127,6 +127,19 @@ export default async function Home() {
           <div className="rounded-xl border bg-card p-6">
             <div className="flex items-center gap-2 font-medium"><Quote className="size-5 text-primary" /> Every quote is checked in code</div>
             <p className="mt-2 text-sm text-muted-foreground">Evidence must appear word for word in what the checker read. Invented quotes are removed, and delivered pages are treated as data, never as instructions.</p>
+          </div>
+        </section>
+        <section className="mx-auto max-w-6xl px-4 pb-16">
+          <div className="rounded-xl border bg-card p-6 grid md:grid-cols-[220px_1fr] gap-4">
+            <div className="flex items-center gap-2 font-medium h-fit"><Scale className="size-5 text-primary" /> Who holds the money</div>
+            <div className="text-sm text-muted-foreground space-y-2">
+              <p>
+                The hold sits in the freelancer&apos;s own Braintree account, so a freelancer could still capture it from the Braintree control panel without the client&apos;s sign-off. Signoff does not make cheating impossible.
+              </p>
+              <p>
+                What it gives both sides is an agreed test of done, a record they both signed, and evidence ready for a dispute if either side breaks the deal. A production version would keep the right to capture on a neutral platform account, such as PayPal&apos;s marketplace and platform payments, so neither side can move the money alone.
+              </p>
+            </div>
           </div>
         </section>
       </main>

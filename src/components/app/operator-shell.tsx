@@ -28,15 +28,15 @@ export async function OperatorShell({ children }: { children: React.ReactNode })
         <div className="mx-auto max-w-6xl px-4 h-14 flex items-center gap-4 sm:gap-6">
           <Brand href="/dashboard" />
           <nav className="flex items-center gap-4 text-sm text-muted-foreground">
-            <Link href="/dashboard" className="hover:text-foreground">Projects</Link>
+            <Link href="/dashboard" className="hover:text-foreground hidden sm:inline">Projects</Link>
             <Link href="/projects/new" className="hover:text-foreground">New project</Link>
           </nav>
           <div className="ml-auto flex items-center gap-2 text-xs">
             <Badge variant="outline" className="hidden md:inline-flex" title="Payment rail">
-              {rail === "fake" ? "Test rail (no Braintree keys)" : `Braintree ${rail}`}
+              {rail === "fake" ? "Payments: test rail" : `Payments: Braintree ${rail}`}
             </Badge>
             <Badge variant="outline" className="hidden md:inline-flex" title="Checker model">
-              {model === "scripted" ? "Scripted checker (no AI key)" : model}
+              {model === "scripted" ? "Checker: scripted, no AI key" : `Checker: ${model.replace(/^google\//, "")}`}
             </Badge>
             {!demo && (
               <form action={logout}>
@@ -46,7 +46,7 @@ export async function OperatorShell({ children }: { children: React.ReactNode })
           </div>
         </div>
       </header>
-      <main className="flex-1 mx-auto w-full max-w-6xl px-4 py-8">{children}</main>
+      <main className="flex-1 mx-auto w-full max-w-6xl px-4 py-8 min-w-0">{children}</main>
     </div>
   );
 }

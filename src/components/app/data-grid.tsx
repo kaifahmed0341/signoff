@@ -1,7 +1,7 @@
 "use client";
 
 import { AgGridReact } from "ag-grid-react";
-import { AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef } from "ag-grid-community";
+import { AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type GridApi } from "ag-grid-community";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -14,22 +14,44 @@ const theme = themeQuartz.withParams({
   headerBackgroundColor: "oklch(0.97 0.005 95)",
   rowHoverColor: "oklch(0.96 0.01 165)",
   wrapperBorderRadius: 12,
-  spacing: 7,
+  spacing: 6,
 });
 
-export function DataGrid<T>({ rows, columns, height = 360, quickFilter }: { rows: T[]; columns: ColDef<T>[]; height?: number; quickFilter?: string }) {
+/**
+ * Grid sized to its rows: no empty box under a short list, and pages of 20
+ * for a long one. The grid scrolls sideways inside its own box on a phone,
+ * so it never widens the page.
+ */
+export function DataGrid<T>({ rows, columns, quickFilter, empty = "Nothing here yet" }: { rows: T[]; columns: ColDef<T>[]; quickFilter?: string; empty?: string }) {
   return (
-    <div style={{ height }} className="w-full">
+    <div className="w-full min-w-0 max-w-full overflow-hidden">
       <AgGridReact<T>
         theme={theme}
         rowData={rows}
         columnDefs={columns}
         quickFilterText={quickFilter}
+        domLayout="autoHeight"
+        pagination={rows.length > 20}
+        paginationPageSize={20}
+        paginationPageSizeSelector={false}
+        overlayNoRowsTemplate={`<span style="padding:16px;color:#777">${empty}</span>`}
         defaultColDef={{ sortable: true, resizable: true, filter: true, flex: 1, minWidth: 110 }}
+        // Rows with wrapped text are measured once fonts and styles have loaded, so a second line is never clipped.
+        onFirstDataRendered={(e) => remeasure(e.api)}
+        onGridSizeChanged={(e) => e.api.resetRowHeights()}
         animateRows
         suppressCellFocus
         enableCellTextSelection
       />
     </div>
   );
+}
+
+function remeasure(api: GridApi) {
+  const run = () => {
+    if (!api.isDestroyed()) api.resetRowHeights();
+  };
+  requestAnimationFrame(run);
+  setTimeout(run, 300);
+  if (typeof document !== "undefined" && document.fonts) document.fonts.ready.then(run).catch(() => undefined);
 }

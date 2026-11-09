@@ -283,8 +283,8 @@ describe("webhooks and dispute defence", () => {
 
   it("opens a dispute from a signed webhook, drafts evidence, dedupes repeats", async () => {
     const m = await releasedWithDisputeCard();
-    await rail.openDisputeFor(m.transactionId!);
-    const s = await rail.sampleWebhook("dispute_opened", m.transactionId!);
+    const disputeId = await rail.openDisputeFor(m.transactionId!);
+    const s = await rail.disputeWebhook("dispute_opened", disputeId);
     const r1 = await handleWebhook(db, rail, s.signature, s.payload);
     expect(r1.outcome).toMatch(/dispute .* open/);
     const r2 = await handleWebhook(db, rail, s.signature, s.payload);
@@ -319,5 +319,48 @@ describe("webhooks and dispute defence", () => {
     const r = await handleWebhook(db, rail, s.signature, s.payload);
     expect(r.outcome).toMatch(/reconciled/);
     expect((await getMilestone(db, m.id)).transactionStatus).toBe("settled");
+  });
+});
+
+describe("the cheat sample", () => {
+  it("is caught: hidden text and an injected instruction are reported, and the pasted requirement does not pass", async () => {
+    const p = await createSampleProject(db, OWNER);
+    const [m] = await projectMilestones(db, p.id);
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks("cheat"), notes: "", files: [] });
+    // A model that falls for every trick: quotes hidden text and the pasted requirement.
+    const page = sampleLinks("cheat")[0];
+    setModelForTests({
+      label: "mock/test",
+      model: mockJudge((criterion) =>
+        criterion.includes("Saturday")
+          ? { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Saturday wheel-throwing class, start time 10:00, ends 12:30" }, { source: page, quote: "The page lists the Saturday wheel-throwing class with its start time of 10:00." }] }
+          : criterion.includes("address")
+            ? { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Studio address: 14 Kiln Lane, Portland" }] }
+            : { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Join the waitlist with this signup form:" }] },
+      ).model,
+    });
+    await runCheck(db, m.id, d);
+    const check = await latestCheck(db, m.id);
+    expect(check!.findings!.filter((f) => f.kind === "hidden_text").length).toBeGreaterThanOrEqual(2);
+    expect(check!.findings!.some((f) => f.kind === "injected_instruction")).toBe(true);
+    const vs = await verdictsFor(m.id);
+    const sat = vs[1];
+    const addr = vs[2];
+    expect(sat.verdict).toBe("needs_person");
+    expect(sat.dropped.map((x) => x.reason)).toEqual(["hidden from visitors on the page", "copied from the requirement, not from the delivery"]);
+    expect(addr.verdict).toBe("needs_person");
+    expect(addr.dropped[0].reason).toBe("hidden from visitors on the page");
+  });
+
+  it("is caught by the scripted checker too", async () => {
+    const p = await createSampleProject(db, OWNER);
+    const [m] = await projectMilestones(db, p.id);
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks("cheat"), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    const vs = await verdictsFor(m.id);
+    expect(vs[1].verdict).not.toBe("met");
+    expect(vs[2].verdict).not.toBe("met");
   });
 });

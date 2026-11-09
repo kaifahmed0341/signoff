@@ -1,62 +1,97 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-test("operator and client run the full loop on the test rail", async ({ page, context }) => {
-  await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
+const shots = process.env.E2E_SHOTS_DIR ?? "test-results/screens";
 
-  await page.getByRole("button", { name: "Load sample project" }).click();
+async function noSidewaysScroll(page: Page) {
+  const { scroll, width } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: window.innerWidth }));
+  expect(scroll, `page is ${scroll}px wide in a ${width}px window`).toBeLessThanOrEqual(width + 1);
+}
+
+test("a visitor runs the whole loop in a private demo workspace", async ({ page, context }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /Get paid the moment/ })).toBeVisible();
+  await page.screenshot({ path: `${shots}/00-front.png`, fullPage: true });
+  await page.getByRole("button", { name: "Try the live demo" }).click();
+  await expect(page.getByText("Demo workspace.")).toBeVisible();
+  await page.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
   await expect(page.getByRole("heading", { name: "Larkspur Pottery Studio website" })).toBeVisible();
-  await page.screenshot({ path: "test-results/screens/01-project.png", fullPage: true });
-  const shareUrl = await page.locator('input[readonly]').first().inputValue();
+  await page.screenshot({ path: `${shots}/01-project.png`, fullPage: true });
+  const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
 
-  // Client funds milestone 1 with a hold.
+  // The client funds milestone 1 with a hold.
   const client = await context.newPage();
   await client.goto(shareUrl);
   await expect(client.getByText("Fund this milestone with a hold").first()).toBeVisible();
-  await client.screenshot({ path: "test-results/screens/02-client-fund.png", fullPage: true });
+  await client.screenshot({ path: `${shots}/02-client-fund.png`, fullPage: true });
   await client.getByRole("button", { name: "PayPal account (test nonce)" }).first().click();
   await expect(client.getByText("held, not charged").first()).toBeVisible();
 
-  // Operator submits v1, which misses two criteria.
+  // The operator submits the cheat version. The report shows the tampering and the removed quotes.
   await page.reload();
-  await page.getByRole("button", { name: /v1 \(misses two criteria\)/ }).click();
+  await page.getByRole("button", { name: "v1 with a cheat" }).click();
   await page.getByRole("button", { name: "Submit delivery for checking" }).click();
-  await expect(page.getByText("Evidence report for delivery v1")).toBeVisible({ timeout: 30_000 });
-  await page.screenshot({ path: "test-results/screens/03-report-v1.png", fullPage: true });
+  await expect(page.getByText("Evidence report for delivery v1")).toBeVisible();
+  await expect(page.getByText("Tampering found on the delivered page")).toBeVisible();
+  await expect(page.getByText(/Removed: copied from the requirement/).first()).toBeVisible();
+  await page.screenshot({ path: `${shots}/03-report-cheat.png`, fullPage: true });
 
-  // Client reads the report and asks for changes with a drafted note.
+  // The client asks for changes with a drafted note.
   await client.reload();
   await expect(client.getByText("Your decision")).toBeVisible();
+  await client.getByRole("button", { name: "Request changes" }).click();
   await client.getByRole("button", { name: "Draft from the report" }).click();
   await expect(client.locator("#note")).toHaveValue(/Saturday/);
-  await client.screenshot({ path: "test-results/screens/04-client-changes.png", fullPage: true });
   await client.getByRole("button", { name: "Send change request" }).click();
   await expect(client.getByText("You asked for changes").first()).toBeVisible();
 
-  // Operator submits v2, which passes.
+  // The operator submits v2, which passes.
   await page.reload();
-  await page.getByRole("button", { name: /v2 \(complete\)/ }).click();
+  await page.getByRole("button", { name: "v2, complete" }).click();
   await page.getByRole("button", { name: "Submit delivery for checking" }).click();
-  await expect(page.getByText("Evidence report for delivery v2")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Evidence report for delivery v2")).toBeVisible();
 
-  // Client signs off and releases.
+  // The client signs off and releases.
   await client.reload();
   await client.locator("#signer").fill("Robin Client");
-  await client.screenshot({ path: "test-results/screens/05-client-accept.png", fullPage: true });
+  await client.screenshot({ path: `${shots}/04-client-accept.png`, fullPage: true });
   await client.getByRole("button", { name: "Sign off and release payment" }).click();
   await expect(client.getByRole("link", { name: /View receipt SO-/ })).toBeVisible();
-
   await client.getByRole("link", { name: /View receipt SO-/ }).click();
   await expect(client.getByText("(verified)")).toBeVisible();
-  await client.screenshot({ path: "test-results/screens/06-receipt.png", fullPage: true });
+  await client.screenshot({ path: `${shots}/05-receipt.png`, fullPage: true });
 
-  // A dispute opens; operator approves the drafted evidence.
+  // A chargeback opens; the operator approves evidence drafted from the signed record.
   await page.reload();
-  await page.getByRole("button", { name: "Send a signed dispute webhook" }).click();
-  await expect(page.getByText("Approve and submit evidence to Braintree")).toBeVisible();
-  await page.screenshot({ path: "test-results/screens/07-dispute.png", fullPage: true });
+  await page.getByRole("button", { name: "Open a chargeback with a signed webhook" }).click();
+  await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible();
+  await expect(page.getByText(/Chargeback opened for \$450\.00/)).toBeVisible();
   await page.getByRole("button", { name: "Approve and submit evidence to Braintree" }).click();
-  await expect(page.getByText("Evidence submitted. View what was sent")).toBeVisible();
-  await page.screenshot({ path: "test-results/screens/08-timeline.png", fullPage: true });
+  await expect(page.getByText("Outcome: won")).toBeVisible();
+  await page.screenshot({ path: `${shots}/06-dispute.png`, fullPage: true });
+
+  // Phone width: no page is wider than the screen.
+  for (const [p, url, name] of [[client, shareUrl, "07-client-390"], [page, page.url(), "08-operator-390"], [page, "/dashboard", "09-dashboard-390"]] as const) {
+    await p.setViewportSize({ width: 390, height: 844 });
+    await p.goto(url);
+    await p.waitForLoadState("networkidle");
+    await noSidewaysScroll(p);
+    await p.screenshot({ path: `${shots}/${name}.png`, fullPage: true });
+  }
+});
+
+test("each visitor sees only their own workspace", async ({ browser }) => {
+  const a = await (await browser.newContext()).newPage();
+  const b = await (await browser.newContext()).newPage();
+  for (const p of [a, b]) {
+    await p.goto("/");
+    await p.getByRole("button", { name: "Try the live demo" }).click();
+    await expect(p.getByText("Demo workspace.")).toBeVisible();
+  }
+  await a.getByRole("button", { name: "Load sample project" }).click();
+  await expect(a.getByRole("heading", { name: "Larkspur Pottery Studio website" })).toBeVisible();
+  const projectUrl = a.url();
+  await b.goto("/dashboard");
+  await expect(b.getByRole("link", { name: /Larkspur Pottery Studio website/ })).toHaveCount(1);
+  await b.goto(projectUrl);
+  await expect(b.getByRole("heading", { name: "This page does not exist" })).toBeVisible();
 });

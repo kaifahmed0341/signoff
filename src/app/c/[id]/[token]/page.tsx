@@ -40,7 +40,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
           <span className="ml-auto text-xs text-muted-foreground">Payments by Braintree, a PayPal service{rail === "fake" ? " (test rail)" : rail === "sandbox" ? " (sandbox)" : ""}</span>
         </div>
       </header>
-      <main className="mx-auto max-w-3xl px-4 py-8">
+      <main className="mx-auto max-w-3xl px-4 py-8 min-w-0">
         <p className="text-sm text-muted-foreground">Prepared for {project.clientName}</p>
         <h1 className="text-3xl font-semibold tracking-tight mt-1">{project.name}</h1>
         <div className="mt-5 grid sm:grid-cols-3 gap-3">
@@ -62,7 +62,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   </div>
                   <div className="text-right">
                     <div className="text-xl font-semibold tabular-nums">{money(m.amountCents, project.currency)}</div>
-                    <StateBadge state={m.state} className="mt-1" />
+                    <StateBadge state={m.state} className="mt-1" audience="client" />
                   </div>
                 </div>
                 <div className="p-5 space-y-5">

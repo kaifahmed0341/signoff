@@ -13,15 +13,36 @@ const ACTOR: Record<string, string> = {
   system: "bg-zinc-100 text-zinc-700",
 };
 
-export function Timeline({ rows }: { rows: TimelineRow[] }) {
-  const columns: ColDef<TimelineRow>[] = [
-    { field: "at", headerName: "When (UTC)", minWidth: 165, maxWidth: 190, sort: "desc" },
-    { field: "actor", headerName: "Who", maxWidth: 120, cellRenderer: (p: ICellRendererParams<TimelineRow>) => <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ACTOR[p.value] ?? ACTOR.system}`}>{p.value}</span> },
-    { field: "milestone", headerName: "Milestone", minWidth: 140, maxWidth: 200 },
-    { field: "message", headerName: "What happened", minWidth: 320, flex: 3, wrapText: true, autoHeight: true, cellClass: "leading-snug py-2" },
-    { field: "refs", headerName: "Braintree and check ids", minWidth: 200, flex: 1.4, cellClass: "font-mono text-[11px] leading-snug py-2", wrapText: true, autoHeight: true },
-    { field: "type", headerName: "Event", minWidth: 150, maxWidth: 190, cellClass: "font-mono text-xs" },
-  ];
-  return <DataGrid rows={rows} columns={columns} height={440} />;
+function What(p: ICellRendererParams<TimelineRow>) {
+  const r = p.data!;
+  return (
+    <div className="py-2 leading-snug whitespace-normal">
+      <div>{r.message}</div>
+      <div className="mt-0.5 text-[11px] text-muted-foreground font-mono break-all">
+        {r.type}
+        {r.milestone ? ` · ${r.milestone}` : ""}
+      </div>
+    </div>
+  );
 }
 
+function Refs(p: ICellRendererParams<TimelineRow>) {
+  return <div className="py-2 font-mono text-[11px] leading-snug whitespace-normal break-all">{p.value}</div>;
+}
+
+export function Timeline({ rows }: { rows: TimelineRow[] }) {
+  const columns: ColDef<TimelineRow>[] = [
+    { field: "at", headerName: "When (UTC)", width: 160, minWidth: 150, flex: 0, sort: "desc", cellClass: "text-xs" },
+    {
+      field: "actor",
+      headerName: "Who",
+      width: 110,
+      minWidth: 100,
+      flex: 0,
+      cellRenderer: (p: ICellRendererParams<TimelineRow>) => <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ACTOR[p.value] ?? ACTOR.system}`}>{p.value}</span>,
+    },
+    { field: "message", headerName: "What happened", minWidth: 280, flex: 3, autoHeight: true, cellRenderer: What, getQuickFilterText: (p) => `${p.data!.message} ${p.data!.type} ${p.data!.milestone}` },
+    { field: "refs", headerName: "Braintree and check ids", minWidth: 200, flex: 1.4, autoHeight: true, cellRenderer: Refs },
+  ];
+  return <DataGrid rows={rows} columns={columns} empty="No events yet" />;
+}

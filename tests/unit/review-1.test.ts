@@ -287,8 +287,8 @@ describe("M4 webhooks", () => {
   it("M4: a late dispute_opened after dispute_won does not move the dispute back to open, and values come from the rail", async () => {
     const m = await inReview(FAKE_NONCES.card);
     await acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
-    await rail.openDisputeFor(m.transactionId!);
-    const opened1 = await rail.sampleWebhook("dispute_opened", m.transactionId!);
+    const disputeId = await rail.openDisputeFor(m.transactionId!);
+    const opened1 = await rail.disputeWebhook("dispute_opened", disputeId);
     await handleWebhook(db, rail, opened1.signature, opened1.payload);
     const [row] = await db.select().from(disputes);
     expect(row.amountCents).toBe(45000); // the real hold, not the SDK sample's $250
@@ -296,7 +296,7 @@ describe("M4 webhooks", () => {
     await approveAndSubmitDispute(db, rail, row.id, undefined, { sandboxMarkCompelling: true });
     expect((await db.select().from(disputes))[0].status).toBe("won");
     await new Promise((r) => setTimeout(r, 1100));
-    const late = await rail.sampleWebhook("dispute_opened", m.transactionId!);
+    const late = await rail.disputeWebhook("dispute_opened", disputeId);
     await handleWebhook(db, rail, late.signature, late.payload);
     expect((await db.select().from(disputes))[0].status).toBe("won");
   });
@@ -348,8 +348,8 @@ describe("L4 webhook route", () => {
   it("L4: two copies of one webhook run once", async () => {
     const m = await inReview(FAKE_NONCES.card);
     await acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
-    await rail.openDisputeFor(m.transactionId!);
-    const s = await rail.sampleWebhook("dispute_opened", m.transactionId!);
+    const disputeId = await rail.openDisputeFor(m.transactionId!);
+    const s = await rail.disputeWebhook("dispute_opened", disputeId);
     const [a, b] = await Promise.all([handleWebhook(db, rail, s.signature, s.payload), handleWebhook(db, rail, s.signature, s.payload)]);
     expect([a.outcome, b.outcome].filter((o) => o.startsWith("duplicate"))).toHaveLength(1);
   });
@@ -357,8 +357,8 @@ describe("L4 webhook route", () => {
   it("L4: two quick approvals submit dispute evidence once", async () => {
     const m = await inReview(FAKE_NONCES.card);
     await acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
-    await rail.openDisputeFor(m.transactionId!);
-    const s = await rail.sampleWebhook("dispute_opened", m.transactionId!);
+    const disputeId = await rail.openDisputeFor(m.transactionId!);
+    const s = await rail.disputeWebhook("dispute_opened", disputeId);
     await handleWebhook(db, rail, s.signature, s.payload);
     const [row] = await db.select().from(disputes);
     const results = await Promise.allSettled([approveAndSubmitDispute(db, rail, row.id), approveAndSubmitDispute(db, rail, row.id)]);

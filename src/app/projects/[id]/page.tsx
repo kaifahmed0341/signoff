@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Receipt } from "lucide-react";
+import { AlertTriangle, Receipt } from "lucide-react";
 import { OperatorShell } from "@/components/app/operator-shell";
 import { AutoRefresh } from "@/components/app/auto-refresh";
 import { EvidenceReport } from "@/components/app/evidence-report";
@@ -15,11 +15,15 @@ import { requireWorkspace } from "@/lib/web/auth";
 import { recoverStuckChecks } from "@/lib/ai/checker";
 import { day, money, refsOf, when } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
-import { DeliveryForm, DisputePanel, ReconcileButton, SandboxTools, ShareLink } from "./operator-controls";
+import { DeliveryForm, DisputePanel, ReconcileButton, RerunCheck, SandboxTools, ShareLink } from "./operator-controls";
 
 export const dynamic = "force-dynamic";
 // Server actions on this page start checks that keep running after the response (see after()).
 export const maxDuration = 300;
+
+export async function generateMetadata() {
+  return { title: "Project" };
+}
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const w = await requireWorkspace();
@@ -48,12 +52,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     <OperatorShell>
       <AutoRefresh active={anyChecking} />
       <div className="flex flex-wrap items-start gap-4 justify-between">
-        <div>
+        <div className="min-w-0">
           <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">Projects</Link>
-          <h1 className="text-2xl font-semibold tracking-tight mt-1">{project.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight mt-1 break-words">{project.name}</h1>
           <p className="text-sm text-muted-foreground">For {project.clientName}{project.isSample ? " (sample project)" : ""}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0 w-full lg:w-auto">
           <ShareLink url={shareUrl} sent={!!project.sentAt} projectId={project.id} />
           <ReconcileButton projectId={project.id} />
         </div>
@@ -61,9 +65,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       <div className="mt-8 space-y-6">
         {milestones.map((m, i) => (
-          <section key={m.id} className="rounded-2xl border bg-card shadow-xs">
-            <div className="p-5 border-b flex flex-wrap items-start gap-4">
-              <div className="flex-1 min-w-60">
+          <section key={m.id} className="rounded-2xl border bg-card shadow-xs min-w-0">
+            <div className="p-4 sm:p-5 border-b flex flex-wrap items-start gap-4">
+              <div className="flex-1 min-w-0">
                 <div className="text-xs text-muted-foreground">Milestone {i + 1}{m.dueDate ? `, due ${day(m.dueDate)}` : ""}</div>
                 <h2 className="font-semibold text-lg">{m.title}</h2>
                 <p className="text-sm text-muted-foreground mt-1">{m.deliverable}</p>
@@ -73,12 +77,18 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                 <StateBadge state={m.state} className="mt-1" />
               </div>
             </div>
-            <div className="p-5 space-y-5">
+            <div className="p-4 sm:p-5 space-y-5 min-w-0">
+              {m.attention && (
+                <div role="alert" className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-900 dark:text-red-200 flex gap-2">
+                  <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+                  <span><strong>Needs attention.</strong> {m.attention}</span>
+                </div>
+              )}
               <HoldInfo m={m} currency={project.currency} />
               {m.state === "changes_requested" && m.changeNote && (
                 <div className="rounded-lg border border-orange-200 bg-orange-50 dark:bg-orange-950/20 p-3 text-sm">
                   <div className="font-medium mb-1">The client asked for changes</div>
-                  <p className="whitespace-pre-wrap">{m.changeNote}</p>
+                  <p className="whitespace-pre-wrap break-words">{m.changeNote}</p>
                 </div>
               )}
               {(m.state === "draft" || m.state === "awaiting_funding") && (
@@ -88,16 +98,26 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               )}
               {m.state === "awaiting_funding" && <p className="text-sm text-muted-foreground">Waiting for the client to place a hold from their link.</p>}
               {(m.state === "funded" || m.state === "changes_requested") && (
-                <DeliveryForm milestoneId={m.id} sampleLinks={project.isSample && i === 0 ? { v1: sampleLinks(1)[0], v2: sampleLinks(2)[0] } : undefined} />
+                <DeliveryForm
+                  milestoneId={m.id}
+                  sampleLinks={project.isSample && i === 0 ? { v1: sampleLinks(1)[0], cheat: sampleLinks("cheat")[0], v2: sampleLinks(2)[0] } : undefined}
+                />
               )}
               <EvidenceReport m={m} />
+              {m.check?.status === "failed" && m.delivery && (m.state === "funded" || m.state === "changes_requested") && <RerunCheck milestoneId={m.id} />}
               {m.state === "in_review" && <p className="text-sm text-muted-foreground">The client has the report and decides from their link.</p>}
               {m.state === "released" && (
                 <div className="space-y-3">
                   <Link href={`/receipt/${m.id}?t=${shareTokenFor(project)}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"><Receipt className="size-4" /> Receipt {m.receiptNumber}</Link>
-                  <SandboxTools milestoneId={m.id} rail={rail} transactionStatus={m.transactionStatus} />
+                  {m.disputes.length === 0 && <SandboxTools milestoneId={m.id} rail={rail} transactionStatus={m.transactionStatus} />}
                   {m.disputes.map((d) => (
-                    <DisputePanel key={d.id} dispute={{ id: d.id, status: d.status, reason: d.reason, replyByDate: d.replyByDate, evidencePack: d.evidencePack, submittedAt: d.submittedAt, amount: money(d.amountCents, project.currency) }} />
+                    <DisputePanel
+                      key={d.id}
+                      rail={rail}
+                      signedBy={m.acceptedBy}
+                      signedAt={m.acceptedAt ? when(m.acceptedAt) : null}
+                      dispute={{ id: d.id, status: d.status, reason: d.reason, kind: d.kind, replyByDate: d.replyByDate, evidencePack: d.evidencePack, submittedAt: d.submittedAt, outcomeAt: d.outcomeAt, createdAt: d.createdAt, amount: money(d.amountCents, project.currency) }}
+                    />
                   ))}
                 </div>
               )}

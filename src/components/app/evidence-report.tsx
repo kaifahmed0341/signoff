@@ -1,11 +1,18 @@
-import { Ban, CheckCircle2, Circle, FileText, Globe, Info, Loader2, Quote } from "lucide-react";
+import { Ban, CheckCircle2, Circle, EyeOff, FileText, GitBranch, Globe, Info, Loader2, Quote, ShieldAlert, X } from "lucide-react";
 import type { MilestoneView } from "@/lib/web/views";
 import { VerdictBadge } from "./state-badge";
 import { when } from "@/lib/web/format";
 
+const KIND: Record<string, string> = {
+  page: "on the delivered page",
+  deliverable_file: "in the delivered file",
+  notes_file: "in the freelancer's notes (a claim, not proof)",
+  repository: "in the repository",
+};
+
 function SourceLabel({ source }: { source: string }) {
-  if (source === "scope") return <span>the signed scope</span>;
-  if (source.startsWith("file:")) return <span>file {source.slice(5)}</span>;
+  if (source.startsWith("file:")) return <span className="break-all">{source.slice(5)}</span>;
+  if (!/^https?:\/\//.test(source)) return <span className="break-all">{source}</span>;
   return (
     <a href={source} target="_blank" rel="noreferrer noopener" className="underline decoration-dotted underline-offset-2 break-all">
       {source.replace(/^https?:\/\//, "")}
@@ -13,45 +20,76 @@ function SourceLabel({ source }: { source: string }) {
   );
 }
 
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 export function EvidenceReport({ m }: { m: MilestoneView }) {
   if (!m.check) return null;
   const c = m.check;
   if (c.status === "running") return <CheckProgressView m={m} />;
   if (c.status === "failed") {
-    return <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">The last check failed: {c.error}. The hold is untouched. The operator can resubmit.</div>;
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+        The last check did not finish: {c.error} The hold is untouched. The operator can run the check again.
+      </div>
+    );
   }
   const counts = { met: 0, not_met: 0, needs_person: 0 } as Record<string, number>;
   for (const v of m.verdicts) counts[v.verdict] = (counts[v.verdict] ?? 0) + 1;
+  const findings = c.findings ?? [];
+  const seconds = c.finishedAt ? Math.max(1, Math.round((c.finishedAt.getTime() - c.startedAt.getTime()) / 1000)) : null;
   return (
-    <div className="rounded-xl border bg-card">
+    <div className="rounded-xl border bg-card min-w-0">
       <div className="p-4 border-b flex flex-wrap items-center gap-x-6 gap-y-2">
-        <div>
+        <div className="min-w-0">
           <div className="text-sm font-medium">Evidence report for delivery v{m.delivery?.version}</div>
           <div className="text-xs text-muted-foreground">
-            Checked {when(c.finishedAt)} by {c.model === "scripted" ? "the scripted checker (no AI model)" : c.model}
-            {c.finishedAt && ` in ${Math.max(1, Math.round((c.finishedAt.getTime() - c.startedAt.getTime()) / 1000))} s`}
+            Checked {when(c.finishedAt)} by {c.model === "scripted" ? "the scripted checker (no AI)" : c.model}
+            {seconds !== null && ` in ${seconds} s`}
           </div>
         </div>
-        <div className="flex gap-4 text-sm ml-auto">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm sm:ml-auto">
           <span><span className="font-semibold text-met">{counts.met}</span> met</span>
           <span><span className="font-semibold text-unmet">{counts.not_met}</span> not met</span>
-          <span><span className="font-semibold text-person">{counts.needs_person}</span> need a person</span>
+          <span><span className="font-semibold text-person">{counts.needs_person}</span> for a person</span>
         </div>
       </div>
+
       {c.fallbackReason && (
         <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex gap-2">
           <Info className="size-4 shrink-0" />
-          <span>{c.fallbackReason}, so the scripted checker ran instead. It matches key words and uses no AI. Treat its verdicts with more care.</span>
+          <span>{c.fallbackReason}, so the scripted checker ran instead. It matches key words and uses no AI. Read its verdicts with more care.</span>
         </div>
       )}
+
+      {findings.length > 0 && (
+        <div className="mx-4 mt-4 rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-900 p-3 text-sm">
+          <div className="flex items-center gap-2 font-medium text-red-900 dark:text-red-200">
+            <ShieldAlert className="size-4" /> Tampering found on the delivered page
+          </div>
+          <ul className="mt-2 space-y-1.5 text-xs">
+            {findings.map((f, i) => (
+              <li key={i} className="flex gap-2">
+                {f.kind === "hidden_text" ? <EyeOff className="size-3.5 mt-0.5 shrink-0" /> : <ShieldAlert className="size-3.5 mt-0.5 shrink-0" />}
+                <span className="min-w-0">
+                  <span className="font-medium">{f.kind === "hidden_text" ? "Text hidden from visitors" : "Instruction aimed at the AI checker"}:</span>{" "}
+                  <span className="break-words">&ldquo;{f.excerpt}&rdquo;</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-red-900/80 dark:text-red-200/80">Hidden text never counts as evidence, and the checker treats page content as data, not instructions.</p>
+        </div>
+      )}
+
       {c.summary && <p className="px-4 pt-4 text-sm">{c.summary.replace(/^.*so the scripted checker ran instead\. /, "")}</p>}
+
       <ol className="p-4 space-y-4">
         {m.criteria.map((cr, i) => {
           const v = m.verdicts.find((x) => x.criterionId === cr.id);
           return (
             <li key={cr.id} className="rounded-lg border p-4 bg-background">
               <div className="flex items-start gap-3">
-                <span className="text-xs text-muted-foreground mt-0.5 w-5">{i + 1}.</span>
+                <span className="text-xs text-muted-foreground mt-0.5 w-5 shrink-0">{i + 1}.</span>
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="font-medium text-sm">{cr.text}</div>
@@ -63,13 +101,27 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
                     <blockquote key={k} className="mt-2 rounded-md bg-muted px-3 py-2 text-sm flex gap-2">
                       <Quote className="size-3.5 mt-1 shrink-0 text-muted-foreground" />
                       <div className="min-w-0">
-                        <div>&ldquo;{e.quote}&rdquo;</div>
-                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1"><CheckCircle2 className="size-3 text-met" /> Found word for word in <SourceLabel source={e.source} /></div>
+                        <div className="break-words">&ldquo;{e.quote}&rdquo;</div>
+                        <div className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
+                          <CheckCircle2 className="size-3 text-met" /> Found word for word {KIND[e.kind ?? "page"]}: <SourceLabel source={e.source} />
+                        </div>
                       </div>
                     </blockquote>
                   ))}
+                  {(v?.dropped ?? []).map((d, k) => (
+                    <div key={k} className="mt-2 rounded-md border border-dashed border-red-300 dark:border-red-900 px-3 py-2 text-sm flex gap-2">
+                      <X className="size-3.5 mt-1 shrink-0 text-unmet" />
+                      <div className="min-w-0">
+                        <div className="line-through decoration-red-400/70 text-muted-foreground break-words">&ldquo;{d.quote}&rdquo;</div>
+                        <div className="text-xs text-unmet mt-1">Removed: {d.reason}</div>
+                      </div>
+                    </div>
+                  ))}
                   {v?.note && (
-                    <div className="mt-2 text-xs flex gap-1.5 text-amber-800 dark:text-amber-300"><Info className="size-3.5 shrink-0" />{v.note}</div>
+                    <div className="mt-2 text-xs flex gap-1.5 text-amber-800 dark:text-amber-300">
+                      <Info className="size-3.5 shrink-0" />
+                      {v.note}
+                    </div>
                   )}
                 </div>
               </div>
@@ -77,17 +129,25 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
           );
         })}
       </ol>
+
       <details className="border-t px-4 py-3 text-sm group">
-        <summary className="cursor-pointer text-muted-foreground select-none">What the checker read ({m.toolCalls.length} reads{c.droppedEvidence ? `, ${c.droppedEvidence} unverifiable quote(s) removed` : ""})</summary>
+        <summary className="cursor-pointer text-muted-foreground select-none">
+          What the checker read ({plural(m.toolCalls.length, "read")}
+          {c.droppedEvidence ? `, ${plural(c.droppedEvidence, "quote")} removed` : ""})
+        </summary>
         <ul className="mt-3 space-y-2">
           {m.toolCalls.map((t) => {
             const input = JSON.parse(t.input) as Record<string, string>;
             const target = input.url ?? input.repoUrl ?? input.name ?? "";
+            const Icon = !t.ok ? Ban : t.tool === "read_file" ? FileText : t.tool.startsWith("github") ? GitBranch : Globe;
             return (
               <li key={t.id} className="flex gap-2 items-start">
-                {t.ok ? (t.tool === "read_file" ? <FileText className="size-4 mt-0.5 text-muted-foreground" /> : <Globe className="size-4 mt-0.5 text-muted-foreground" />) : <Ban className="size-4 mt-0.5 text-unmet" />}
+                <Icon className={`size-4 mt-0.5 shrink-0 ${t.ok ? "text-muted-foreground" : "text-unmet"}`} />
                 <div className="min-w-0">
-                  <div className="font-mono text-xs break-all">{t.tool} {target}{input.path ? ` ${input.path}` : ""}</div>
+                  <div className="font-mono text-xs break-all">
+                    {t.tool} {target}
+                    {input.path ? ` ${input.path}` : ""}
+                  </div>
                   {!t.ok && <div className="text-xs text-unmet">{t.output}</div>}
                   {t.ok && <div className="text-xs text-muted-foreground">{t.output.length.toLocaleString()} characters read</div>}
                 </div>
@@ -95,7 +155,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
             );
           })}
         </ul>
-        <p className="mt-3 text-xs text-muted-foreground">The checker only reads. It has no payment tools, and pages it reads are treated as data, so instructions hidden in a delivery cannot move money.</p>
+        <p className="mt-3 text-xs text-muted-foreground">The checker only reads. It has no payment tools, and what it reads is treated as data, so instructions hidden in a delivery cannot move money.</p>
       </details>
     </div>
   );
@@ -104,8 +164,8 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
 const PHASE: Record<string, string> = {
   reading: "Reading the delivery",
   exploring: "Following links in the delivery",
-  judging: "Testing each criterion",
-  saving: "Verifying quotes and saving the report",
+  judging: "Testing each criterion against what it read",
+  saving: "Verifying every quote and saving the report",
 };
 
 function CheckProgressView({ m }: { m: MilestoneView }) {
@@ -122,7 +182,13 @@ function CheckProgressView({ m }: { m: MilestoneView }) {
           const st = p?.criteria[cr.id] ?? "waiting";
           return (
             <li key={cr.id} className="flex items-start gap-2">
-              {st === "done" ? <CheckCircle2 className="size-4 mt-0.5 text-met shrink-0" /> : st === "checking" ? <Loader2 className="size-4 mt-0.5 animate-spin text-violet-600 shrink-0" /> : <Circle className="size-4 mt-0.5 text-muted-foreground shrink-0" />}
+              {st === "done" ? (
+                <CheckCircle2 className="size-4 mt-0.5 text-met shrink-0" />
+              ) : st === "checking" ? (
+                <Loader2 className="size-4 mt-0.5 animate-spin text-violet-600 shrink-0" />
+              ) : (
+                <Circle className="size-4 mt-0.5 text-muted-foreground shrink-0" />
+              )}
               <span className={st === "waiting" ? "text-muted-foreground" : ""}>{cr.text}</span>
             </li>
           );
@@ -132,7 +198,9 @@ function CheckProgressView({ m }: { m: MilestoneView }) {
         <div className="text-xs text-muted-foreground border-t border-violet-200 dark:border-violet-900 pt-2">
           <div className="font-medium mb-1">Read so far</div>
           <ul className="space-y-0.5 font-mono break-all">
-            {reads.slice(-5).map((r, i) => <li key={i}>{r}</li>)}
+            {reads.slice(-5).map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
           </ul>
         </div>
       )}

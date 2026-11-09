@@ -20,7 +20,7 @@ export default async function ReceiptPage({ params, searchParams }: { params: Pr
 
   return (
     <div className="min-h-screen bg-muted/40 py-10 px-4">
-      <div className="mx-auto max-w-2xl bg-card border rounded-2xl shadow-sm p-8 print:shadow-none print:border-0">
+      <div className="mx-auto max-w-2xl bg-card border rounded-2xl shadow-sm p-5 sm:p-8 print:shadow-none print:border-0">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-2"><Logo /><span className="font-semibold">Signoff receipt</span></div>
           <div className="text-right text-sm">
@@ -37,10 +37,18 @@ export default async function ReceiptPage({ params, searchParams }: { params: Pr
           <tbody>
             <tr className="border-b"><td className="py-3"><div className="font-medium">{m.title}</div><div className="text-muted-foreground">{m.deliverable}</div></td><td className="py-3 text-right tabular-nums">{money(m.settledCents, p.currency)}</td></tr>
           </tbody>
-          <tfoot><tr><td className="py-3 font-semibold">Paid</td><td className="py-3 text-right font-semibold tabular-nums">{money(m.settledCents, p.currency)}</td></tr></tfoot>
+          <tfoot>
+            <tr>
+              <td className="py-3 font-semibold">{m.transactionStatus === "settled" ? "Paid" : "Released for payment"}</td>
+              <td className="py-3 text-right font-semibold tabular-nums">{money(m.settledCents, p.currency)}</td>
+            </tr>
+          </tfoot>
         </table>
         <div className="mt-6 grid sm:grid-cols-2 gap-4 text-xs text-muted-foreground">
-          <div>Paid with {m.payerLabel ?? m.paymentInstrument} through Braintree, a PayPal service.</div>
+          <div>
+            Paid with {m.payerLabel ?? m.paymentInstrument} through Braintree, a PayPal service.{" "}
+            {m.transactionStatus === "settled" ? "The payment has settled." : `Braintree status: ${(m.transactionStatus ?? "").replace(/_/g, " ")}. Settlement usually completes within a day.`}
+          </div>
           <div className="sm:text-right font-mono">Transaction {m.transactionId}</div>
         </div>
         <div className="mt-8 rounded-xl border p-4 text-sm">
