@@ -144,6 +144,7 @@
 /* AG Grid in auto-height mode keeps a minimum body height; short lists should not leave an empty band. */
 .ag-layout-auto-height .ag-center-cols-viewport,
 .ag-layout-auto-height .ag-center-cols-container,
-.ag-layout-auto-height .ag-center-cols-clipper {
+.ag-layout-auto-height .ag-center-cols-clipper,
+.ag-grid-scrolling-rows.ag-layout-auto-height {
   min-height: 0 !important;
 }
