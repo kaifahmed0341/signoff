@@ -80,6 +80,25 @@ Removed quotes are kept and shown on the report with the reason. A "met" with no
 
 The hold sits in the freelancer's own Braintree account, so a freelancer could still capture it from the Braintree control panel without the client's sign-off. Signoff does not make cheating impossible. What it gives both sides is an agreed test of done, a record they both signed, and evidence ready for a dispute if either side breaks the deal. A production version would keep the right to capture on a neutral platform account, such as PayPal's marketplace and platform payments, so neither side can move the money alone.
 
+## Agent access over MCP
+
+A freelancer's coding agent can work its side of one project through an MCP endpoint at `/api/mcp` (Streamable HTTP, JSON responses, stateless). The operator creates a token on the project page under **Agent access** and can revoke it there at any time.
+
+| Tool | What it does |
+|---|---|
+| `list_milestones` | Milestones with their acceptance criteria, amount, state, any change request, and whether a delivery can be submitted |
+| `submit_delivery` | Hands in up to 5 links and notes for a funded milestone; the checker starts at once |
+| `read_evidence_report` | The checker's verdicts, surviving quotes, removed quotes with reasons and tampering found, or its progress while it runs |
+
+There are no payment tools: an agent cannot fund, release, decline or touch disputes. A token reaches one project only, is stored as a SHA-256 hash, stops working when revoked or when its demo workspace is pruned, and its deliveries go through the same checker, caps and audit timeline as the web form.
+
+```bash
+claude mcp add --transport http signoff https://signoff-iota.vercel.app/api/mcp \
+  --header "Authorization: Bearer so_agent_..."
+# then, in the agent: "List my Signoff milestones, submit https://staging.example.com
+#  for the landing page, and tell me what the evidence report says."
+```
+
 ## AI
 
 Through the Vercel AI SDK. **Google Gemini** is the default: `gemini-3.5-flash-lite`, then `gemini-3.5-flash` and `gemini-3.1-flash-lite` when a model is rate-limited. **Anthropic Claude** (`claude-sonnet-5-5`) is the alternative. With no key, a deterministic scripted checker runs, labelled on every report.
@@ -138,7 +157,8 @@ src/
     payments/rail.ts              the one narrow PaymentRail interface
     payments/braintree-rail.ts    Braintree
     payments/fake-rail.ts         the test rail, stored in the database
-    services/                     milestones, deliveries, disputes and webhooks, workspaces, usage caps, audit
+    services/                     milestones, deliveries, disputes and webhooks, workspaces, usage caps, agent tokens, audit
+    mcp/server.ts                 the MCP tools for a freelancer's coding agent
     ai/planner.ts                 scope to milestones with verified citations
     ai/checker.ts                 the checker, tampering findings, the scripted fallback
     ai/evidence.ts                the evidence rule

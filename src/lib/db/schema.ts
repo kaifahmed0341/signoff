@@ -264,3 +264,25 @@ export type Verdict = typeof verdicts.$inferSelect;
 export type ToolCall = typeof toolCalls.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
 export type Dispute = typeof disputes.$inferSelect;
+
+/**
+ * Tokens that let a freelancer's coding agent work its side of one project
+ * over MCP. Only a SHA-256 hash is stored; the token is shown once.
+ */
+export const mcpTokens = sqliteTable(
+  "mcp_tokens",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    label: text("label").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [uniqueIndex("mcp_token_hash_idx").on(t.tokenHash), index("mcp_token_project_idx").on(t.projectId)],
+);
+
+export type McpToken = typeof mcpTokens.$inferSelect;

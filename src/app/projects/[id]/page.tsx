@@ -15,6 +15,8 @@ import { requireWorkspace } from "@/lib/web/auth";
 import { recoverStuckChecks } from "@/lib/ai/checker";
 import { day, money, refsOf, when } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
+import { AgentAccess } from "./agent-access";
+import { listAgentTokens } from "@/lib/services/mcp-tokens";
 import { DeliveryForm, DisputePanel, ReconcileButton, RerunCheck, SandboxTools, ShareLink } from "./operator-controls";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +38,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     throw e;
   });
   const { project, milestones, events } = view;
+  const agentTokens = await listAgentTokens(db, project.id);
   const shareUrl = `${env().APP_URL}/c/${project.id}/${shareTokenFor(project)}`;
   const rail = railMode();
   const anyChecking = milestones.some((m) => m.state === "checking");
@@ -134,6 +137,14 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </div>
           </section>
         ))}
+      </div>
+
+      <div className="mt-6">
+        <AgentAccess
+          projectId={project.id}
+          endpoint={`${env().APP_URL}/api/mcp`}
+          tokens={agentTokens.map((t) => ({ id: t.id, label: t.label, createdAt: when(t.createdAt), lastUsedAt: t.lastUsedAt ? when(t.lastUsedAt) : null, revokedAt: t.revokedAt ? when(t.revokedAt) : null }))}
+        />
       </div>
 
       <h2 className="mt-10 mb-3 font-medium">Audit timeline</h2>

@@ -28,6 +28,7 @@ import {
   type MilestoneDraft,
 } from "@/lib/services/milestones";
 import { LOGIN_FAILURES_PER_DAY, consume, loginFailures, noteLoginFailure } from "@/lib/services/usage";
+import { createAgentToken, revokeAgentToken } from "@/lib/services/mcp-tokens";
 import { createDemoWorkspace, ensureOwnerWorkspace } from "@/lib/services/workspaces";
 import { currentWorkspace, endSession, passcodeLoginEnabled, passcodeMatches, requireWorkspace, startSession } from "@/lib/web/auth";
 
@@ -182,6 +183,34 @@ export async function rerunCheckAction(milestoneId: string): Promise<ActionResul
     await applyEvent(db, m, "SUBMIT_DELIVERY");
     after(() => runCheck(db, milestoneId, d.id));
     revalidatePath(`/projects/${m.projectId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+// ---------------------------------------------------------------- agent access (MCP)
+
+export async function createAgentTokenAction(projectId: string, label: string): Promise<ActionResult<{ token: string }>> {
+  const w = await requireWorkspace();
+  try {
+    const db = await getDb();
+    await getOwnedProject(db, w.id, projectId);
+    const { token } = await createAgentToken(db, projectId, String(label ?? "").slice(0, 60));
+    revalidatePath(`/projects/${projectId}`);
+    return { ok: true, data: { token } };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function revokeAgentTokenAction(projectId: string, tokenId: string): Promise<ActionResult> {
+  const w = await requireWorkspace();
+  try {
+    const db = await getDb();
+    await getOwnedProject(db, w.id, projectId);
+    await revokeAgentToken(db, projectId, String(tokenId));
+    revalidatePath(`/projects/${projectId}`);
     return { ok: true };
   } catch (err) {
     return fail(err);
