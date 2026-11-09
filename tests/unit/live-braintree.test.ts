@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BraintreeRail } from "@/lib/payments/braintree-rail";
 import { RailError } from "@/lib/payments/rail";
+import { tamper } from "./helpers";
 
 /**
  * Runs against the real Braintree sandbox. Opt in with LIVE_BRAINTREE=1 and
@@ -78,7 +79,7 @@ describe.runIf(run)("Braintree sandbox", () => {
     const ev = await r.parseWebhook(s.signature, s.payload);
     expect(ev.kind).toBe("dispute_opened");
     expect(ev.dispute?.id).toBe("dispute_live_test");
-    await expect(r.parseWebhook(s.signature.replace(/.$/, "0"), s.payload)).rejects.toThrow();
+    await expect(r.parseWebhook(tamper(s.signature), s.payload)).rejects.toThrow();
   });
 
   it("opens a dispute with the test card and takes evidence", async () => {

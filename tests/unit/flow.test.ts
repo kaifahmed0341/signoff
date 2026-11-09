@@ -21,7 +21,7 @@ import {
 import { approveAndSubmitDispute, handleWebhook, milestoneDisputes, syncDisputes } from "@/lib/services/disputes";
 import { FAKE_NONCES, type FakeRail } from "@/lib/payments/fake-rail";
 import type { DB } from "@/lib/db";
-import { freshWorld, startStaticServer } from "./helpers";
+import { freshWorld, startStaticServer, tamper } from "./helpers";
 
 let server: Server;
 let origin: string;
@@ -193,7 +193,7 @@ describe("webhooks and dispute defence", () => {
 
   it("rejects a webhook with a bad signature", async () => {
     const s = await rail.sampleWebhook("dispute_opened", "x");
-    const r = await handleWebhook(db, rail, s.signature.replace(/.$/, "0"), s.payload);
+    const r = await handleWebhook(db, rail, tamper(s.signature), s.payload);
     expect(r.status).toBe(400);
   });
 

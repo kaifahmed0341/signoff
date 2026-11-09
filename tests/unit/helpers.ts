@@ -36,3 +36,9 @@ export async function freshWorld(overrides: Partial<Env> = {}) {
   const db = await createTestDb();
   return { db, rail };
 }
+
+/** Change the last character so the signature is always different. */
+export function tamper(signature: string): string {
+  const last = signature.slice(-1);
+  return signature.slice(0, -1) + (last === "0" ? "1" : "0");
+}
