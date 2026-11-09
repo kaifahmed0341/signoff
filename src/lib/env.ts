@@ -2,8 +2,8 @@ import { z } from "zod";
 
 /**
  * All configuration comes from one env file (.env.local). Every value has a
- * safe default so `pnpm dev` works before any credential exists: PayPal runs
- * against the built-in fake server and the AI runs in scripted mode.
+ * safe default so `pnpm dev` works before any credential exists: payments run
+ * against the built-in fake rail and the AI runs in scripted mode.
  */
 const schema = z.object({
   APP_URL: z.string().url().default("http://localhost:3000"),
@@ -12,15 +12,17 @@ const schema = z.object({
   OPERATOR_PASSCODE: z.string().min(4).default("signoff-demo"),
   SESSION_SECRET: z.string().min(16).default("dev-only-session-secret-change-me"),
 
-  // PayPal
-  PAYPAL_MODE: z.enum(["fake", "sandbox", "live"]).default("fake"),
-  PAYPAL_CLIENT_ID: z.string().optional(),
-  PAYPAL_CLIENT_SECRET: z.string().optional(),
-  PAYPAL_WEBHOOK_ID: z.string().optional(),
-  PAYPAL_CURRENCY: z.string().length(3).default("USD"),
+  // Payments run on Braintree, a PayPal service. "fake" uses an in-process
+  // stand-in so the app and the tests run with no account.
+  BRAINTREE_ENVIRONMENT: z.enum(["fake", "sandbox", "production"]).optional(),
+  BRAINTREE_MERCHANT_ID: z.string().optional(),
+  BRAINTREE_PUBLIC_KEY: z.string().optional(),
+  BRAINTREE_PRIVATE_KEY: z.string().optional(),
+  BRAINTREE_MERCHANT_ACCOUNT_ID: z.string().optional(),
+  CURRENCY: z.string().length(3).default("USD"),
 
   // AI
-  AI_PROVIDER: z.enum(["auto", "anthropic", "google", "scripted"]).default("auto"),
+  AI_PROVIDER: z.enum(["auto", "google", "anthropic", "scripted"]).default("auto"),
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
@@ -46,8 +48,8 @@ export function setEnvForTests(overrides: Partial<Env>) {
   cached = { ...schema.parse({}), ...overrides };
 }
 
-export function paypalBaseUrl(e: Env = env()): string {
-  if (e.PAYPAL_MODE === "live") return "https://api-m.paypal.com";
-  if (e.PAYPAL_MODE === "sandbox") return "https://api-m.sandbox.paypal.com";
-  return `${e.APP_URL}/api/fake-paypal`;
+/** Which payment rail the app talks to. Defaults to the sandbox once keys exist. */
+export function railMode(e: Env = env()): "fake" | "sandbox" | "production" {
+  if (e.BRAINTREE_ENVIRONMENT) return e.BRAINTREE_ENVIRONMENT;
+  return e.BRAINTREE_MERCHANT_ID && e.BRAINTREE_PUBLIC_KEY && e.BRAINTREE_PRIVATE_KEY ? "sandbox" : "fake";
 }

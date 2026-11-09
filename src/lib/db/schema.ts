@@ -10,8 +10,6 @@ export const projects = sqliteTable("projects", {
   clientEmail: text("client_email"),
   scope: text("scope").notNull(),
   currency: text("currency").notNull().default("USD"),
-  subcontractorEmail: text("subcontractor_email"),
-  subcontractorSharePct: integer("subcontractor_share_pct").notNull().default(0),
   sentAt: integer("sent_at", { mode: "timestamp_ms" }),
   isSample: integer("is_sample", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
@@ -30,25 +28,28 @@ export const milestones = sqliteTable(
     amountCents: integer("amount_cents").notNull(),
     dueDate: text("due_date"),
     state: text("state").notNull().default("draft"),
-    // PayPal references
-    orderId: text("order_id"),
-    authorizationId: text("authorization_id"),
-    authorizationStatus: text("authorization_status"),
-    honorExpiresAt: integer("honor_expires_at", { mode: "timestamp_ms" }),
+    // Braintree hold (a transaction authorized but not yet submitted for settlement)
+    transactionId: text("transaction_id"),
+    transactionStatus: text("transaction_status"),
+    paymentInstrument: text("payment_instrument"),
+    payerLabel: text("payer_label"),
+    heldCents: integer("held_cents").notNull().default(0),
+    authorizedAt: integer("authorized_at", { mode: "timestamp_ms" }),
     authExpiresAt: integer("auth_expires_at", { mode: "timestamp_ms" }),
-    reauthorizedAt: integer("reauthorized_at", { mode: "timestamp_ms" }),
-    captureId: text("capture_id"),
-    capturedCents: integer("captured_cents").notNull().default(0),
-    invoiceId: text("invoice_id"),
-    invoiceNumber: text("invoice_number"),
-    payoutBatchId: text("payout_batch_id"),
-    payoutCents: integer("payout_cents").notNull().default(0),
+    settledCents: integer("settled_cents").notNull().default(0),
+    releasedAt: integer("released_at", { mode: "timestamp_ms" }),
+    // Signed acceptance record, written when the client signs off
+    acceptedBy: text("accepted_by"),
+    acceptedAt: integer("accepted_at", { mode: "timestamp_ms" }),
+    acceptanceRecord: text("acceptance_record"),
+    acceptanceSignature: text("acceptance_signature"),
+    receiptNumber: text("receipt_number"),
     changeNote: text("change_note"),
     fundingAttempt: integer("funding_attempt").notNull().default(0),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(now),
   },
-  (t) => [index("milestones_project_idx").on(t.projectId), index("milestones_order_idx").on(t.orderId)],
+  (t) => [index("milestones_project_idx").on(t.projectId), index("milestones_txn_idx").on(t.transactionId)],
 );
 
 export const criteria = sqliteTable("criteria", {
@@ -143,6 +144,25 @@ export const auditEvents = sqliteTable(
   (t) => [index("audit_project_idx").on(t.projectId)],
 );
 
+export const disputes = sqliteTable("disputes", {
+  id: text("id").primaryKey(), // Braintree dispute id
+  milestoneId: text("milestone_id")
+    .notNull()
+    .references(() => milestones.id, { onDelete: "cascade" }),
+  transactionId: text("transaction_id").notNull(),
+  status: text("status").notNull(),
+  reason: text("reason"),
+  kind: text("kind"),
+  amountCents: integer("amount_cents").notNull().default(0),
+  replyByDate: text("reply_by_date"),
+  evidencePack: text("evidence_pack"),
+  approvedAt: integer("approved_at", { mode: "timestamp_ms" }),
+  submittedAt: integer("submitted_at", { mode: "timestamp_ms" }),
+  evidenceIds: text("evidence_ids", { mode: "json" }).$type<string[]>(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(now),
+});
+
 export const webhookEvents = sqliteTable(
   "webhook_events",
   {
@@ -166,3 +186,4 @@ export type Check = typeof checks.$inferSelect;
 export type Verdict = typeof verdicts.$inferSelect;
 export type ToolCall = typeof toolCalls.$inferSelect;
 export type AuditEvent = typeof auditEvents.$inferSelect;
+export type Dispute = typeof disputes.$inferSelect;

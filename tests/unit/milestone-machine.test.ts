@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
-  AUTH_VALIDITY_MS,
-  HONOR_PERIOD_MS,
+  EXPIRY_WARNING_MS,
   IllegalTransitionError,
   MILESTONE_STATES,
   canTransition,
-  eventForAuthorizationStatus,
+  eventForTransactionStatus,
   holdHealth,
   transition,
   type MilestoneEvent,
+  type MilestoneState,
 } from "@/lib/domain/milestone-machine";
 
 describe("milestone state machine", () => {
   it("walks the happy path from draft to released", () => {
     const events: MilestoneEvent[] = ["SEND", "AUTHORIZE", "SUBMIT_DELIVERY", "CHECK_COMPLETE", "CAPTURE"];
-    let s = MILESTONE_STATES[0];
+    let s: MilestoneState = MILESTONE_STATES[0];
     for (const e of events) s = transition(s, e);
     expect(s).toBe("released");
   });
@@ -58,25 +58,27 @@ describe("milestone state machine", () => {
 });
 
 describe("hold health", () => {
-  const start = 1_000_000;
-  const honor = start + HONOR_PERIOD_MS;
-  const exp = start + AUTH_VALIDITY_MS;
-  it("is guaranteed for three days", () => {
-    expect(holdHealth(start + 1000, honor, exp)).toBe("guaranteed");
+  const exp = 10 * 24 * 60 * 60 * 1000;
+  it("is active well before expiry", () => {
+    expect(holdHealth(0, exp)).toBe("active");
   });
-  it("recommends reauthorizing after the honor period", () => {
-    expect(holdHealth(honor + 1, honor, exp)).toBe("valid_reauthorize_recommended");
+  it("warns in the last day", () => {
+    expect(holdHealth(exp - EXPIRY_WARNING_MS + 1, exp)).toBe("expiring_soon");
   });
-  it("expires at 29 days", () => {
-    expect(holdHealth(exp, honor, exp)).toBe("expired");
+  it("expires at the authorization expiry", () => {
+    expect(holdHealth(exp, exp)).toBe("expired");
+  });
+  it("treats an unknown expiry as active", () => {
+    expect(holdHealth(exp, null)).toBe("active");
   });
 });
 
-describe("PayPal status mapping", () => {
-  it("maps authorization statuses to events", () => {
-    expect(eventForAuthorizationStatus("CAPTURED")).toBe("CAPTURE");
-    expect(eventForAuthorizationStatus("VOIDED")).toBe("VOID");
-    expect(eventForAuthorizationStatus("EXPIRED")).toBe("EXPIRE");
-    expect(eventForAuthorizationStatus("CREATED")).toBeNull();
+describe("Braintree status mapping", () => {
+  it("maps transaction statuses to events", () => {
+    expect(eventForTransactionStatus("submitted_for_settlement")).toBe("CAPTURE");
+    expect(eventForTransactionStatus("settled")).toBe("CAPTURE");
+    expect(eventForTransactionStatus("voided")).toBe("VOID");
+    expect(eventForTransactionStatus("authorization_expired")).toBe("EXPIRE");
+    expect(eventForTransactionStatus("authorized")).toBeNull();
   });
 });

@@ -8,11 +8,11 @@
 export const MILESTONE_STATES = [
   "draft", // operator is still editing
   "awaiting_funding", // share link sent, client has not approved a hold
-  "funded", // PayPal authorization active, money held not charged
+  "funded", // Braintree authorization active, money held not charged
   "checking", // delivery submitted, checker agent running
   "in_review", // evidence report ready, client decides
   "changes_requested", // client asked for changes, hold still active
-  "released", // authorization captured, operator paid
+  "released", // transaction submitted for settlement, operator paid
   "declined", // authorization voided, hold released
   "hold_expired", // authorization expired before a decision
 ] as const;
@@ -78,36 +78,39 @@ export const STATE_LABEL: Record<MilestoneState, string> = {
   checking: "Checking delivery",
   in_review: "Ready for sign-off",
   changes_requested: "Changes requested",
-  released: "Released",
+  released: "Released to you",
   declined: "Declined, hold released",
   hold_expired: "Hold expired",
 };
 
-/** PayPal guarantees an authorization for 3 days and keeps it valid for 29. */
-export const HONOR_PERIOD_MS = 3 * 24 * 60 * 60 * 1000;
-export const AUTH_VALIDITY_MS = 29 * 24 * 60 * 60 * 1000;
+/**
+ * A Braintree authorization carries its own expiry (`authorizationExpiresAt`):
+ * about 7 days for most cards, longer for PayPal. We warn a day ahead so the
+ * client can be asked to sign off or re-fund before the hold lapses.
+ */
+export const EXPIRY_WARNING_MS = 24 * 60 * 60 * 1000;
 
-export type HoldHealth = "guaranteed" | "valid_reauthorize_recommended" | "expired";
+export type HoldHealth = "active" | "expiring_soon" | "expired";
 
-export function holdHealth(
-  now: number,
-  honorExpiresAt: number | null | undefined,
-  authExpiresAt: number | null | undefined,
-): HoldHealth {
-  if (authExpiresAt && now >= authExpiresAt) return "expired";
-  if (honorExpiresAt && now >= honorExpiresAt) return "valid_reauthorize_recommended";
-  return "guaranteed";
+export function holdHealth(now: number, authExpiresAt: number | null | undefined): HoldHealth {
+  if (!authExpiresAt) return "active";
+  if (now >= authExpiresAt) return "expired";
+  if (authExpiresAt - now <= EXPIRY_WARNING_MS) return "expiring_soon";
+  return "active";
 }
 
-/** Map a PayPal authorization status to the event that brings local state in line. */
-export function eventForAuthorizationStatus(status: string): MilestoneEvent | null {
+/** Map a Braintree transaction status to the event that brings local state in line. */
+export function eventForTransactionStatus(status: string): MilestoneEvent | null {
   switch (status) {
-    case "CAPTURED":
-    case "PARTIALLY_CAPTURED":
+    case "submitted_for_settlement":
+    case "settling":
+    case "settlement_pending":
+    case "settlement_confirmed":
+    case "settled":
       return "CAPTURE";
-    case "VOIDED":
+    case "voided":
       return "VOID";
-    case "EXPIRED":
+    case "authorization_expired":
       return "EXPIRE";
     default:
       return null;

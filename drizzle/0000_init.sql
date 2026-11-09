@@ -54,6 +54,24 @@ CREATE TABLE `delivery_files` (
 	FOREIGN KEY (`delivery_id`) REFERENCES `deliveries`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE TABLE `disputes` (
+	`id` text PRIMARY KEY NOT NULL,
+	`milestone_id` text NOT NULL,
+	`transaction_id` text NOT NULL,
+	`status` text NOT NULL,
+	`reason` text,
+	`kind` text,
+	`amount_cents` integer DEFAULT 0 NOT NULL,
+	`reply_by_date` text,
+	`evidence_pack` text,
+	`approved_at` integer,
+	`submitted_at` integer,
+	`evidence_ids` text,
+	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
+	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `milestones` (
 	`id` text PRIMARY KEY NOT NULL,
 	`project_id` text NOT NULL,
@@ -63,18 +81,20 @@ CREATE TABLE `milestones` (
 	`amount_cents` integer NOT NULL,
 	`due_date` text,
 	`state` text DEFAULT 'draft' NOT NULL,
-	`order_id` text,
-	`authorization_id` text,
-	`authorization_status` text,
-	`honor_expires_at` integer,
+	`transaction_id` text,
+	`transaction_status` text,
+	`payment_instrument` text,
+	`payer_label` text,
+	`held_cents` integer DEFAULT 0 NOT NULL,
+	`authorized_at` integer,
 	`auth_expires_at` integer,
-	`reauthorized_at` integer,
-	`capture_id` text,
-	`captured_cents` integer DEFAULT 0 NOT NULL,
-	`invoice_id` text,
-	`invoice_number` text,
-	`payout_batch_id` text,
-	`payout_cents` integer DEFAULT 0 NOT NULL,
+	`settled_cents` integer DEFAULT 0 NOT NULL,
+	`released_at` integer,
+	`accepted_by` text,
+	`accepted_at` integer,
+	`acceptance_record` text,
+	`acceptance_signature` text,
+	`receipt_number` text,
 	`change_note` text,
 	`funding_attempt` integer DEFAULT 0 NOT NULL,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
@@ -83,7 +103,7 @@ CREATE TABLE `milestones` (
 );
 --> statement-breakpoint
 CREATE INDEX `milestones_project_idx` ON `milestones` (`project_id`);--> statement-breakpoint
-CREATE INDEX `milestones_order_idx` ON `milestones` (`order_id`);--> statement-breakpoint
+CREATE INDEX `milestones_txn_idx` ON `milestones` (`transaction_id`);--> statement-breakpoint
 CREATE TABLE `projects` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -91,8 +111,6 @@ CREATE TABLE `projects` (
 	`client_email` text,
 	`scope` text NOT NULL,
 	`currency` text DEFAULT 'USD' NOT NULL,
-	`subcontractor_email` text,
-	`subcontractor_share_pct` integer DEFAULT 0 NOT NULL,
 	`sent_at` integer,
 	`is_sample` integer DEFAULT false NOT NULL,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL

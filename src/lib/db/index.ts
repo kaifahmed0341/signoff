@@ -41,7 +41,7 @@ export async function getDb(): Promise<DB> {
 }
 
 /** Test hook: swap in a fresh database. */
-export async function useTestDb(): Promise<DB> {
+export async function createTestDb(): Promise<DB> {
   const { db, client } = createDb(":memory:");
   await migrateDb(db);
   holder.db = db;
