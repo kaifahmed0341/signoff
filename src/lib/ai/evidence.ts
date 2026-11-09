@@ -127,7 +127,11 @@ export function aboutPage(criterion: string): boolean {
  * quote from the delivery itself. Quotes from the freelancer's notes alone
  * send it to a person.
  */
-const COMMON_CAPS = new Set(["The", "A", "An", "Visitors", "Visitor", "Users", "User", "Each", "Every", "All", "It", "This", "That", "Page", "Site", "Our", "Your"]);
+const COMMON_CAPS = new Set([
+  "The", "A", "An", "Visitors", "Visitor", "Users", "User", "Each", "Every", "All", "It", "This", "That", "Page", "Site", "Our", "Your",
+  // Generic abbreviations name a kind of thing, not a specific value.
+  "URL", "URLs", "PDF", "API", "APIs", "HTML", "CSS", "ID", "IDs", "FAQ", "SEO", "UI", "UX", "CTA", "CI", "CD", "CMS", "SSL", "DNS", "HTTP", "HTTPS", "JSON", "CSV", "README",
+]);
 
 /**
  * The specific values a criterion names: numbers, times and prices, and

@@ -86,3 +86,12 @@ describe("uploaded files", () => {
     expect(normalizeText(f.text)).toContain("The site is hosted on Northwind Pages, on the Starter plan.");
   });
 });
+
+describe("criterion specifics", () => {
+  it("collects numbers and proper names, not generic abbreviations", async () => {
+    const { specifics } = await import("@/lib/ai/evidence");
+    expect(specifics("The page lists the Saturday wheel-throwing class with its start time of 10:00.")).toEqual(["10:00", "Saturday"]);
+    expect(specifics("The handover document gives the admin login URL.")).toEqual([]);
+    expect(specifics("The repository is published under the MIT licence.")).toEqual(["MIT"]);
+  });
+});

@@ -111,7 +111,7 @@ A check reads every link and file once in parallel, lets the model explore furth
 
 `pnpm eval` runs 8 deliveries and 31 criteria with known right answers: the two sample versions, the cheat version, a version that hides the missing facts with a linked stylesheet, a version that hides them with alt text, closed elements, a canvas, transparent and tiny text, a prices page with one wrong price and a subjective criterion, a handover PDF uploaded as a file, and this repository on GitHub.
 
-**Latest, 9 November 2026, `google/gemini-3.5-flash-lite`: 23 of 23 correct, 0 wrong, 0 sent to a person.** For comparison, the scripted checker with no AI gets 14 of the 20 offline criteria right, 4 wrong and 2 sent to a person. Full table and timings: [docs/eval-latest.md](docs/eval-latest.md). The sample loop ran five times in a row with v1 failing the same two criteria and v2 passing every time, at about 2 seconds a check.
+**Latest, 9 November 2026, `google/gemini-3.5-flash-lite`: 31 of 31 correct, 0 wrong, 0 sent to a person.** For comparison, the scripted checker with no AI gets 22 of the 28 offline criteria right, 4 wrong and 2 sent to a person. Full table and timings: [docs/eval-latest.md](docs/eval-latest.md). The sample loop ran five times in a row with v1 failing the same two criteria and v2 passing every time, at about 2 seconds a check.
 
 ## Run it
 
