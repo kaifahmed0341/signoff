@@ -3,6 +3,7 @@
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getRail } from "@/lib/payments";
@@ -12,7 +13,7 @@ import { planFromScope, type PlannedProject } from "@/lib/ai/planner";
 import { createSampleProject } from "@/lib/sample";
 import { audit } from "@/lib/services/audit";
 import { fileToText } from "@/lib/services/files";
-import { MAX_FILE_BYTES, MAX_FILES, submitDelivery } from "@/lib/services/deliveries";
+import { MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_UPLOAD_BYTES, submitDelivery } from "@/lib/services/deliveries";
 import { approveAndSubmitDispute, getDisputeRow, handleWebhook, syncDisputes } from "@/lib/services/disputes";
 import {
   ServiceError,
@@ -20,10 +21,11 @@ import {
   getOwnedMilestone,
   getOwnedProject,
   reconcileProject,
+  rotateShareLink,
   sendProject,
   type MilestoneDraft,
 } from "@/lib/services/milestones";
-import { consume } from "@/lib/services/usage";
+import { LOGIN_FAILURES_PER_DAY, consume, loginFailures, noteLoginFailure } from "@/lib/services/usage";
 import { createDemoWorkspace, ensureOwnerWorkspace } from "@/lib/services/workspaces";
 import { currentWorkspace, endSession, passcodeLoginEnabled, passcodeMatches, requireWorkspace, startSession } from "@/lib/web/auth";
 
@@ -38,9 +40,15 @@ function fail(err: unknown): { ok: false; error: string } {
 
 export async function login(_prev: { error?: string } | undefined, form: FormData) {
   if (!passcodeLoginEnabled()) return { error: "Passcode sign-in is off on this demo server. Use Try the live demo." };
-  const code = String(form.get("passcode") ?? "");
-  if (!passcodeMatches(code)) return { error: "That passcode is not right." };
-  const w = await ensureOwnerWorkspace(await getDb());
+  const db = await getDb();
+  const ip = ((await headers()).get("x-forwarded-for") ?? "local").split(",")[0].trim().slice(0, 64);
+  if ((await loginFailures(db, ip)) >= LOGIN_FAILURES_PER_DAY) return { error: "Too many wrong passcodes from this address today. Try again tomorrow." };
+  const code = String(form.get("passcode") ?? "").slice(0, 200);
+  if (!passcodeMatches(code)) {
+    await noteLoginFailure(db, ip);
+    return { error: "That passcode is not right." };
+  }
+  const w = await ensureOwnerWorkspace(db);
   await startSession(w.id);
   redirect("/dashboard");
 }
@@ -143,11 +151,13 @@ export async function submitDeliveryAction(form: FormData): Promise<ActionResult
     const links = String(form.get("links") ?? "").split(/\s+/).filter(Boolean);
     const notes = String(form.get("notes") ?? "").slice(0, 4000);
     const uploads = form.getAll("files").filter((x): x is File => x instanceof File && x.size > 0);
+    const role = form.get("fileRole") === "deliverable" ? "deliverable" : "notes";
     if (uploads.length > MAX_FILES) throw new ServiceError(`Attach at most ${MAX_FILES} files`);
-    const files: { name: string; mime: string; text: string }[] = [];
+    if (uploads.reduce((a, f) => a + f.size, 0) > MAX_TOTAL_UPLOAD_BYTES) throw new ServiceError("The files add up to more than 3 MB");
+    const files: { name: string; mime: string; text: string; role: "deliverable" | "notes" }[] = [];
     for (const f of uploads) {
       if (f.size > MAX_FILE_BYTES) throw new ServiceError(`${f.name} is over ${MAX_FILE_BYTES / 1_000_000} MB`);
-      files.push(await fileToText(f.name, f.type, new Uint8Array(await f.arrayBuffer())));
+      files.push({ ...(await fileToText(f.name, f.type, new Uint8Array(await f.arrayBuffer()))), role });
     }
     const deliveryId = await submitDelivery(db, milestoneId, { links, notes, files });
     // The check runs after the response is sent; the page polls its progress.
@@ -160,6 +170,19 @@ export async function submitDeliveryAction(form: FormData): Promise<ActionResult
 }
 
 // ---------------------------------------------------------------- money and disputes
+
+export async function rotateLinkAction(projectId: string): Promise<ActionResult> {
+  const w = await requireWorkspace();
+  try {
+    const db = await getDb();
+    await getOwnedProject(db, w.id, projectId);
+    await rotateShareLink(db, projectId);
+    revalidatePath(`/projects/${projectId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
 
 export async function reconcileAction(projectId: string): Promise<ActionResult<string[]>> {
   const w = await requireWorkspace();
@@ -176,13 +199,13 @@ export async function reconcileAction(projectId: string): Promise<ActionResult<s
   }
 }
 
-export async function approveDisputeAction(disputeId: string, pack: string): Promise<ActionResult> {
+export async function approveDisputeAction(disputeId: string, pack: string, sandboxMarkCompelling = false): Promise<ActionResult> {
   const w = await requireWorkspace();
   try {
     const db = await getDb();
     const d = await getDisputeRow(db, disputeId);
     const m = await getOwnedMilestone(db, w.id, d.milestoneId);
-    await approveAndSubmitDispute(db, getRail(), disputeId, pack.slice(0, 20_000));
+    await approveAndSubmitDispute(db, getRail(), disputeId, String(pack).slice(0, 20_000), { sandboxMarkCompelling: sandboxMarkCompelling === true });
     revalidatePath(`/projects/${m.projectId}`);
     return { ok: true };
   } catch (err) {

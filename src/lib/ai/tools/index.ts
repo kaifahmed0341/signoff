@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { extractText, getDocumentProxy } from "unpdf";
 import { htmlToText } from "./html-text";
+import type { CorpusEntry, SourceKind } from "../evidence";
 import { FetchBlockedError, safeFetch, type FetchPolicy } from "./safe-fetch";
 
 /**
@@ -12,11 +13,27 @@ import { FetchBlockedError, safeFetch, type FetchPolicy } from "./safe-fetch";
 
 const MAX_TOOL_TEXT = 15_000;
 
-export type ToolRecord = { tool: string; input: Record<string, unknown>; source: string; output: string; ok: boolean };
+/**
+ * One read. `output` is what the model sees (with headers such as the page
+ * title). `quotable` is the visible content only, the only text a quote can be
+ * verified against. `hidden` holds page text a visitor cannot see.
+ */
+export type ToolRecord = {
+  tool: string;
+  input: Record<string, unknown>;
+  source: string;
+  output: string;
+  ok: boolean;
+  quotable?: string;
+  hidden?: string[];
+  kind?: SourceKind;
+};
+
+type ReadResult = { output: string; quotable: string; hidden?: string[]; kind: SourceKind };
 
 export type ToolContext = {
   links: string[];
-  files: { name: string; mime: string; text: string }[];
+  files: { name: string; mime: string; text: string; role?: string }[];
   selfOrigin?: string;
   githubToken?: string;
   records: ToolRecord[];
@@ -45,7 +62,7 @@ function clip(s: string): string {
 
 const NETWORK_TOOLS = new Set(["read_url", "github_repo", "github_file"]);
 
-async function record(ctx: ToolContext, toolName: string, input: Record<string, unknown>, source: string, run: () => Promise<string>): Promise<string> {
+async function record(ctx: ToolContext, toolName: string, input: Record<string, unknown>, source: string, run: () => Promise<ReadResult>): Promise<string> {
   // Each source is read once per check; a repeat request gets the first result.
   const seen = ctx.records.find((r) => r.tool === toolName && r.source === source && r.ok);
   if (seen) return seen.output;
@@ -55,8 +72,9 @@ async function record(ctx: ToolContext, toolName: string, input: Record<string, 
       const blocked = await ctx.allowFetch();
       if (blocked) throw new FetchBlockedError(blocked);
     }
-    const output = clip(await run());
-    ctx.records.push({ tool: toolName, input, source, output, ok: true });
+    const r = await run();
+    const output = clip(r.output);
+    ctx.records.push({ tool: toolName, input, source, output, ok: true, quotable: clip(r.quotable), hidden: r.hidden, kind: r.kind });
     return output;
   } catch (err) {
     const msg = err instanceof FetchBlockedError ? `Blocked: ${err.message}` : `Error: ${err instanceof Error ? err.message : String(err)}`;
@@ -69,17 +87,20 @@ export async function readUrl(ctx: ToolContext, url: string): Promise<string> {
   return record(ctx, "read_url", { url }, url, async () => {
     const doc = await safeFetch(url, policyFor(ctx));
     const ct = doc.contentType.toLowerCase();
-    let body: string;
+    const head = `HTTP ${doc.status} from ${doc.url}`;
     if (ct.includes("pdf")) {
       const pdf = await getDocumentProxy(new Uint8Array(doc.body));
-      body = (await extractText(pdf, { mergePages: true })).text;
-    } else if (ct.includes("html") || /^\s*</.test(doc.body.subarray(0, 64).toString())) {
-      const { title, text } = htmlToText(doc.body.toString("utf8"));
-      body = `${title ? `Page title: ${title}\n` : ""}${text}`;
-    } else {
-      body = doc.body.toString("utf8");
+      const text = (await extractText(pdf, { mergePages: true })).text;
+      return { output: `${head}\n${text}`, quotable: text, kind: "page" };
     }
-    return `HTTP ${doc.status} from ${doc.url}\n${body}`;
+    if (ct.includes("html") || /^\s*</.test(doc.body.subarray(0, 64).toString())) {
+      const { title, text, hidden } = htmlToText(doc.body.toString("utf8"));
+      // The model sees the title as context, but only visible body text can be quoted as evidence.
+      const note = hidden.length ? `\n[${hidden.length} block(s) of text on this page are hidden from visitors and were left out]` : "";
+      return { output: `${head}\n${title ? `Page title (not page content): ${title}\n` : ""}${text}${note}`, quotable: text, hidden, kind: "page" };
+    }
+    const text = doc.body.toString("utf8");
+    return { output: `${head}\n${text}`, quotable: text, kind: "page" };
   });
 }
 
@@ -87,7 +108,9 @@ export async function readFile(ctx: ToolContext, name: string): Promise<string> 
   return record(ctx, "read_file", { name }, `file:${name}`, async () => {
     const f = ctx.files.find((x) => x.name === name);
     if (!f) throw new Error(`No uploaded file named ${name}. Files: ${ctx.files.map((x) => x.name).join(", ") || "none"}`);
-    return f.text;
+    const isDeliverable = f.role === "deliverable";
+    const label = isDeliverable ? "Delivered file" : "Freelancer's notes. A claim about the work, not proof of it";
+    return { output: `[${label}: ${name}]\n${f.text}`, quotable: f.text, kind: isDeliverable ? "deliverable_file" : "notes_file" };
   });
 }
 
@@ -104,9 +127,14 @@ function allowedRepo(ctx: ToolContext, repoUrl: string) {
   return r;
 }
 
-async function gh(ctx: ToolContext, path: string): Promise<unknown> {
+/**
+ * GitHub API call. The server's token (if any) is sent only after the
+ * repository was confirmed public without it, so a token that can read private
+ * repositories is never spent on one a delivery names.
+ */
+async function gh(ctx: ToolContext & { repoPublic?: Set<string> }, path: string, repoKey?: string): Promise<unknown> {
   const headers: Record<string, string> = { accept: "application/vnd.github+json" };
-  if (ctx.githubToken) headers.authorization = `Bearer ${ctx.githubToken}`;
+  if (ctx.githubToken && repoKey && ctx.repoPublic?.has(repoKey)) headers.authorization = `Bearer ${ctx.githubToken}`;
   const doc = await safeFetch(`https://api.github.com${path}`, { allowedHosts: ["api.github.com"] }, { headers });
   if (doc.status >= 400) throw new Error(`GitHub returned ${doc.status} for ${path}`);
   return JSON.parse(doc.body.toString("utf8"));
@@ -115,18 +143,19 @@ async function gh(ctx: ToolContext, path: string): Promise<unknown> {
 export async function githubRepo(ctx: ToolContext, repoUrl: string): Promise<string> {
   return record(ctx, "github_repo", { repoUrl }, repoUrl, async () => {
     const { owner, repo } = allowedRepo(ctx, repoUrl);
-    const info = (await gh(ctx, `/repos/${owner}/${repo}`)) as { default_branch: string; description: string | null; private: boolean; license?: { spdx_id?: string } | null };
-    const [commit] = (await gh(ctx, `/repos/${owner}/${repo}/commits?per_page=1`)) as { sha: string; commit: { message: string; author: { date: string } } }[];
-    const tree = (await gh(ctx, `/repos/${owner}/${repo}/git/trees/${commit.sha}?recursive=1`)) as { tree: { path: string; type: string }[] };
+    const key = await confirmPublic(ctx, owner, repo);
+    const info = (await gh(ctx, `/repos/${owner}/${repo}`, key)) as { default_branch: string; description: string | null; private: boolean; license?: { spdx_id?: string } | null };
+    const [commit] = (await gh(ctx, `/repos/${owner}/${repo}/commits?per_page=1`, key)) as { sha: string; commit: { message: string; author: { date: string } } }[];
+    const tree = (await gh(ctx, `/repos/${owner}/${repo}/git/trees/${commit.sha}?recursive=1`, key)) as { tree: { path: string; type: string }[] };
     let ci = "No CI runs found for the latest commit.";
     try {
-      const runs = (await gh(ctx, `/repos/${owner}/${repo}/commits/${commit.sha}/check-runs?per_page=20`)) as { check_runs: { name: string; status: string; conclusion: string | null }[] };
+      const runs = (await gh(ctx, `/repos/${owner}/${repo}/commits/${commit.sha}/check-runs?per_page=20`, key)) as { check_runs: { name: string; status: string; conclusion: string | null }[] };
       if (runs.check_runs.length) ci = runs.check_runs.map((r) => `CI check "${r.name}": ${r.status}${r.conclusion ? `, ${r.conclusion}` : ""}`).join("\n");
     } catch {
       /* CI status is optional */
     }
     const files = tree.tree.filter((t) => t.type === "blob").map((t) => t.path);
-    return [
+    const text = [
       `Repository ${owner}/${repo} (default branch ${info.default_branch})`,
       `Description: ${info.description ?? "none"}`,
       `License: ${info.license?.spdx_id ?? "none"}`,
@@ -135,17 +164,39 @@ export async function githubRepo(ctx: ToolContext, repoUrl: string): Promise<str
       `Files (${files.length}):`,
       ...files.slice(0, 300),
     ].join("\n");
+    return { output: text, quotable: text, kind: "repository" };
   });
 }
 
 export async function githubFile(ctx: ToolContext, repoUrl: string, path: string): Promise<string> {
   return record(ctx, "github_file", { repoUrl, path }, `${repoUrl}/blob/HEAD/${path}`, async () => {
     const { owner, repo } = allowedRepo(ctx, repoUrl);
+    const key = await confirmPublic(ctx, owner, repo);
     const safePath = path.split("/").filter((p) => p && p !== "..").map(encodeURIComponent).join("/");
-    const f = (await gh(ctx, `/repos/${owner}/${repo}/contents/${safePath}`)) as { content?: string; encoding?: string; type: string };
+    const f = (await gh(ctx, `/repos/${owner}/${repo}/contents/${safePath}`, key)) as { content?: string; encoding?: string; type: string };
     if (f.type !== "file" || !f.content) throw new Error(`${path} is not a file`);
-    return Buffer.from(f.content, (f.encoding as BufferEncoding) ?? "base64").toString("utf8");
+    const text = Buffer.from(f.content, (f.encoding as BufferEncoding) ?? "base64").toString("utf8");
+    return { output: `[${path}]\n${text}`, quotable: text, kind: "repository" };
   });
+}
+
+/** Checks, without any token, that a repository is public. Private or missing repositories are refused. */
+async function confirmPublic(ctx: ToolContext & { repoPublic?: Set<string> }, owner: string, repo: string): Promise<string> {
+  const key = `${owner}/${repo}`.toLowerCase();
+  ctx.repoPublic ??= new Set();
+  if (ctx.repoPublic.has(key)) return key;
+  const doc = await safeFetch(`https://api.github.com/repos/${owner}/${repo}`, { allowedHosts: ["api.github.com"] }, { headers: { accept: "application/vnd.github+json" } });
+  if (doc.status === 404) throw new FetchBlockedError(`${owner}/${repo} is private or does not exist. Only public repositories can be checked.`);
+  if (doc.status >= 400) throw new Error(`GitHub returned ${doc.status} for ${owner}/${repo}`);
+  const info = JSON.parse(doc.body.toString("utf8")) as { private?: boolean };
+  if (info.private) throw new FetchBlockedError(`${owner}/${repo} is private. Only public repositories can be checked.`);
+  ctx.repoPublic.add(key);
+  return key;
+}
+
+/** The visible, quotable text of every successful read, for evidence checks. */
+export function corpusOf(ctx: ToolContext): CorpusEntry[] {
+  return ctx.records.filter((r) => r.ok).map((r) => ({ source: r.source, text: r.quotable ?? r.output, kind: r.kind ?? "page", hidden: r.hidden }));
 }
 
 /** AI SDK tool definitions bound to one check's context. */

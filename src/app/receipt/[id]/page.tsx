@@ -2,8 +2,7 @@ import { notFound } from "next/navigation";
 import { Logo } from "@/components/app/brand";
 import { PrintButton } from "./print-button";
 import { getDb } from "@/lib/db";
-import { getMilestone, getProject, verifyRecord, type AcceptanceRecord } from "@/lib/services/milestones";
-import { verifyShareToken } from "@/lib/services/ids";
+import { getMilestone, projectFromShareLink, verifyRecord, type AcceptanceRecord } from "@/lib/services/milestones";
 import { money, when } from "@/lib/web/format";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +13,8 @@ export default async function ReceiptPage({ params, searchParams }: { params: Pr
   const { t } = await searchParams;
   const db = await getDb();
   const m = await getMilestone(db, id).catch(() => notFound());
-  if (!t || !verifyShareToken(m.projectId, t) || m.state !== "released" || !m.acceptanceRecord) notFound();
-  const p = await getProject(db, m.projectId);
+  const p = await projectFromShareLink(db, m.projectId, t).catch(() => notFound());
+  if (m.state !== "released" || !m.acceptanceRecord) notFound();
   const record = JSON.parse(m.acceptanceRecord) as AcceptanceRecord;
   const valid = verifyRecord(m.acceptanceRecord, m.acceptanceSignature ?? "");
 

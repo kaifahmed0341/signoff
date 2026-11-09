@@ -10,8 +10,7 @@ import { Timeline, type TimelineRow } from "@/components/app/timeline";
 import { getDb } from "@/lib/db";
 import { env, railMode } from "@/lib/env";
 import { sampleLinks } from "@/lib/sample";
-import { shareToken } from "@/lib/services/ids";
-import { ServiceError, getOwnedProject, projectMilestones } from "@/lib/services/milestones";
+import { ServiceError, getOwnedProject, projectMilestones, shareTokenFor } from "@/lib/services/milestones";
 import { requireWorkspace } from "@/lib/web/auth";
 import { recoverStuckChecks } from "@/lib/ai/checker";
 import { day, money, refsOf, when } from "@/lib/web/format";
@@ -33,7 +32,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     throw e;
   });
   const { project, milestones, events } = view;
-  const shareUrl = `${env().APP_URL}/c/${project.id}/${shareToken(project.id)}`;
+  const shareUrl = `${env().APP_URL}/c/${project.id}/${shareTokenFor(project)}`;
   const rail = railMode();
   const anyChecking = milestones.some((m) => m.state === "checking");
   const rows: TimelineRow[] = events.map((e) => ({
@@ -95,7 +94,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               {m.state === "in_review" && <p className="text-sm text-muted-foreground">The client has the report and decides from their link.</p>}
               {m.state === "released" && (
                 <div className="space-y-3">
-                  <Link href={`/receipt/${m.id}?t=${shareToken(project.id)}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"><Receipt className="size-4" /> Receipt {m.receiptNumber}</Link>
+                  <Link href={`/receipt/${m.id}?t=${shareTokenFor(project)}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"><Receipt className="size-4" /> Receipt {m.receiptNumber}</Link>
                   <SandboxTools milestoneId={m.id} rail={rail} transactionStatus={m.transactionStatus} />
                   {m.disputes.map((d) => (
                     <DisputePanel key={d.id} dispute={{ id: d.id, status: d.status, reason: d.reason, replyByDate: d.replyByDate, evidencePack: d.evidencePack, submittedAt: d.submittedAt, amount: money(d.amountCents, project.currency) }} />

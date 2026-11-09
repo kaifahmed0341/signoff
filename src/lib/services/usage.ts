@@ -56,3 +56,17 @@ export async function consume(db: DB, workspace: { id: string; kind: string }, k
   }
   return { ok: true };
 }
+
+export const LOGIN_FAILURES_PER_DAY = 20;
+
+/** Failed passcode attempts from one address today. Above the limit, sign-in is refused until tomorrow. */
+export async function loginFailures(db: DB, ip: string, now = Date.now()): Promise<number> {
+  const day = today(now);
+  const [row] = await db.select().from(usageCounters).where(sql`${usageCounters.key} = ${`login|${ip}|${day}`}`);
+  return row?.count ?? 0;
+}
+
+export async function noteLoginFailure(db: DB, ip: string, now = Date.now()): Promise<number> {
+  const day = today(now);
+  return bump(db, `login|${ip}|${day}`, day, 1);
+}

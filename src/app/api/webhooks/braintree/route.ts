@@ -9,9 +9,16 @@ import { handleWebhook } from "@/lib/services/disputes";
  * the payload.
  */
 export async function POST(req: Request) {
-  const form = await req.formData();
-  const signature = String(form.get("bt_signature") ?? "");
-  const payload = String(form.get("bt_payload") ?? "");
+  let signature = "";
+  let payload = "";
+  try {
+    const form = await req.formData();
+    signature = String(form.get("bt_signature") ?? "");
+    payload = String(form.get("bt_payload") ?? "");
+  } catch {
+    return new Response("Expected a form-encoded Braintree webhook", { status: 400 });
+  }
+  if (!signature || !payload || payload.length > 200_000) return new Response("Missing or oversized webhook fields", { status: 400 });
   const r = await handleWebhook(await getDb(), getRail(), signature, payload);
   return new Response(r.outcome, { status: r.status });
 }

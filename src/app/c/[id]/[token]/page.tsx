@@ -8,7 +8,7 @@ import { HoldInfo } from "@/components/app/hold-info";
 import { StateBadge } from "@/components/app/state-badge";
 import { getDb } from "@/lib/db";
 import { railMode } from "@/lib/env";
-import { verifyShareToken } from "@/lib/services/ids";
+import { projectFromShareLink } from "@/lib/services/milestones";
 import { centsToAmount } from "@/lib/payments/rail";
 import { day, money } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
@@ -22,8 +22,8 @@ export const metadata = { title: "Your project", robots: { index: false } };
 
 export default async function ClientPage({ params }: { params: Promise<{ id: string; token: string }> }) {
   const { id, token } = await params;
-  if (!verifyShareToken(id, token)) notFound();
   const db = await getDb();
+  await projectFromShareLink(db, id, token).catch(() => notFound());
   const { project, milestones } = await loadProjectView(db, id).catch(() => notFound());
   await recoverStuckChecks(db, milestones.filter((m) => m.state === "checking").map((m) => m.id));
   if (!project.sentAt) notFound();

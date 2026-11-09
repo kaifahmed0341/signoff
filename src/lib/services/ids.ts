@@ -29,11 +29,17 @@ export function canonicalJson(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
 }
 
-export function shareToken(projectId: string): string {
-  return sign("share-link", projectId).slice(0, 22);
+/** Client link token. It covers the project's link secret, so rotating the secret revokes every old link. */
+export function shareToken(projectId: string, linkSecret: string): string {
+  return sign("share-link", `${projectId}.${linkSecret}`).slice(0, 22);
 }
 
-export function verifyShareToken(projectId: string, token: string): boolean {
-  const expected = shareToken(projectId);
-  return expected.length === token.length && timingSafeEqual(Buffer.from(expected), Buffer.from(token));
+export function verifyShareToken(projectId: string, linkSecret: string, token: string): boolean {
+  const expected = Buffer.from(shareToken(projectId, linkSecret));
+  const got = Buffer.from(token);
+  return expected.length === got.length && timingSafeEqual(expected, got);
+}
+
+export function newLinkSecret(): string {
+  return randomBytes(12).toString("base64url");
 }

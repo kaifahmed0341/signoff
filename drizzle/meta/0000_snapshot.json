@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "b83a1e4e-5255-486b-b4ea-d64bc6031370",
+  "id": "5e36febc-24e2-472e-a792-0328eb17720f",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit_events": {
@@ -149,6 +149,13 @@
         },
         "fallback_reason": {
           "name": "fallback_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "findings": {
+          "name": "findings",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -369,6 +376,14 @@
           "notNull": true,
           "autoincrement": false
         },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'notes'"
+        },
         "text": {
           "name": "text",
           "type": "text",
@@ -481,6 +496,20 @@
         "evidence_ids": {
           "name": "evidence_ids",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "last_event_at": {
+          "name": "last_event_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "outcome_at": {
+          "name": "outcome_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -868,6 +897,20 @@
           "autoincrement": false,
           "default": 0
         },
+        "claimed_from": {
+          "name": "claimed_from",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attention": {
+          "name": "attention",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -979,6 +1022,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "link_secret": {
+          "name": "link_secret",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "is_sample": {
           "name": "is_sample",
@@ -1166,6 +1217,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "dropped": {
+          "name": "dropped",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'[]'"
         },
         "note": {
           "name": "note",

@@ -1,4 +1,6 @@
 import braintree from "braintree";
+import { randomBytes } from "node:crypto";
+import { sign } from "../services/ids";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { fakeDisputes, fakeTransactions, kv } from "../db/schema";
@@ -33,15 +35,23 @@ const CLOCK_KEY = "fake_rail_clock_offset_ms";
 type TxnRow = typeof fakeTransactions.$inferSelect;
 type DisputeRow = typeof fakeDisputes.$inferSelect;
 
-const webhookGateway = new braintree.BraintreeGateway({
-  environment: braintree.Environment.Sandbox,
-  merchantId: "signoff_fake_merchant",
-  publicKey: "signoff_fake_public",
-  privateKey: "signoff_fake_private",
-});
+/**
+ * Webhook signing keys for the test rail. The private key is derived from
+ * SESSION_SECRET, so nobody can sign a test-rail webhook from the public
+ * source code alone.
+ */
+function webhookGateway() {
+  return new braintree.BraintreeGateway({
+    environment: braintree.Environment.Sandbox,
+    merchantId: "signoff_test_rail",
+    publicKey: "signoff_test_rail_public",
+    privateKey: sign("test-rail-webhook-key", "v1"),
+  });
+}
 
+/** Random ids, so a restart or a second server instance never reuses one. */
 function newFakeId(prefix: string) {
-  return `${prefix}${Date.now().toString(36).slice(-5)}${Math.random().toString(36).slice(2, 6)}`;
+  return `${prefix}_${randomBytes(9).toString("base64url")}`;
 }
 
 function toHold(t: TxnRow): Hold {
@@ -209,11 +219,11 @@ export class FakeRail implements PaymentRail {
   }
 
   async parseWebhook(signature: string, payload: string): Promise<WebhookEvent> {
-    return parseWithGateway(webhookGateway, signature, payload);
+    return parseWithGateway(webhookGateway(), signature, payload);
   }
 
   async sampleWebhook(kind: string, subjectId: string) {
-    return sampleWithGateway(webhookGateway, kind, subjectId);
+    return sampleWithGateway(webhookGateway(), kind, subjectId);
   }
 
   // ---- test-rail-only controls, used by tests and the sandbox tools panel ----

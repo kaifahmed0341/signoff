@@ -4,7 +4,8 @@ import {
   IllegalTransitionError,
   MILESTONE_STATES,
   canTransition,
-  eventForTransactionStatus,
+  remoteOutcome,
+  revertClaim,
   holdHealth,
   transition,
   type MilestoneEvent,
@@ -13,7 +14,7 @@ import {
 
 describe("milestone state machine", () => {
   it("walks the happy path from draft to released", () => {
-    const events: MilestoneEvent[] = ["SEND", "AUTHORIZE", "SUBMIT_DELIVERY", "CHECK_COMPLETE", "CAPTURE"];
+    const events: MilestoneEvent[] = ["SEND", "AUTHORIZE", "SUBMIT_DELIVERY", "CHECK_COMPLETE", "CLAIM_RELEASE", "CAPTURE"];
     let s: MilestoneState = MILESTONE_STATES[0];
     for (const e of events) s = transition(s, e);
     expect(s).toBe("released");
@@ -34,10 +35,11 @@ describe("milestone state machine", () => {
   });
 
   it("only voids while a hold is active", () => {
-    expect(canTransition("funded", "VOID")).toBe(true);
-    expect(canTransition("in_review", "VOID")).toBe(true);
-    expect(canTransition("awaiting_funding", "VOID")).toBe(false);
-    expect(canTransition("released", "VOID")).toBe(false);
+    expect(canTransition("funded", "CLAIM_VOID")).toBe(true);
+    expect(canTransition("in_review", "CLAIM_VOID")).toBe(true);
+    expect(canTransition("voiding", "VOID")).toBe(true);
+    expect(canTransition("awaiting_funding", "CLAIM_VOID")).toBe(false);
+    expect(canTransition("released", "CLAIM_VOID")).toBe(false);
   });
 
   it("allows refunding an expired hold", () => {
@@ -48,7 +50,7 @@ describe("milestone state machine", () => {
   it("terminal states accept no events", () => {
     const all: MilestoneEvent[] = [
       "SEND", "AUTHORIZE", "SUBMIT_DELIVERY", "CHECK_COMPLETE", "CHECK_FAILED",
-      "REQUEST_CHANGES", "CAPTURE", "VOID", "EXPIRE",
+      "REQUEST_CHANGES", "CLAIM_RELEASE", "CAPTURE", "CLAIM_VOID", "VOID", "EXPIRE",
     ];
     for (const e of all) {
       expect(canTransition("released", e)).toBe(false);
@@ -74,11 +76,26 @@ describe("hold health", () => {
 });
 
 describe("Braintree status mapping", () => {
-  it("maps transaction statuses to events", () => {
-    expect(eventForTransactionStatus("submitted_for_settlement")).toBe("CAPTURE");
-    expect(eventForTransactionStatus("settled")).toBe("CAPTURE");
-    expect(eventForTransactionStatus("voided")).toBe("VOID");
-    expect(eventForTransactionStatus("authorization_expired")).toBe("EXPIRE");
-    expect(eventForTransactionStatus("authorized")).toBeNull();
+  it("maps transaction statuses to what happened to the money", () => {
+    expect(remoteOutcome("submitted_for_settlement")).toBe("released");
+    expect(remoteOutcome("settled")).toBe("released");
+    expect(remoteOutcome("voided")).toBe("voided");
+    expect(remoteOutcome("authorization_expired")).toBe("expired");
+    expect(remoteOutcome("authorized")).toBe("held");
+  });
+});
+
+describe("claims", () => {
+  it("only one of a sign-off and a decline can claim a milestone", () => {
+    const afterRelease = transition("in_review", "CLAIM_RELEASE");
+    expect(canTransition(afterRelease, "CLAIM_VOID")).toBe(false);
+    expect(canTransition(afterRelease, "CLAIM_RELEASE")).toBe(false);
+    const afterVoid = transition("in_review", "CLAIM_VOID");
+    expect(canTransition(afterVoid, "CLAIM_RELEASE")).toBe(false);
+  });
+  it("a failed claim goes back where it came from", () => {
+    expect(revertClaim("releasing", "in_review")).toBe("in_review");
+    expect(revertClaim("voiding", "changes_requested")).toBe("changes_requested");
+    expect(revertClaim("voiding", "released")).toBe("funded");
   });
 });

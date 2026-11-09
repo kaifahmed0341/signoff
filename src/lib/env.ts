@@ -27,6 +27,8 @@ const schema = z.object({
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
   GOOGLE_MODEL: z.string().default("gemini-3.5-flash"),
+  /** Tried in order when the main Gemini model is rate-limited; each model has its own free-tier quota. */
+  GOOGLE_FALLBACK_MODELS: z.string().default("gemini-3.5-flash-lite,gemini-3.1-flash-lite"),
   GITHUB_TOKEN: z.string().optional(),
 
   // Public demo: each visitor gets a private workspace with one click.
@@ -50,11 +52,31 @@ export type Env = z.infer<typeof schema>;
 
 let cached: Env | undefined;
 
+export const DEV_SESSION_SECRET = "dev-only-session-secret-change-me";
+export const DEMO_PASSCODE = "signoff-demo";
+
+/**
+ * Refuses to run a production server with the public development defaults:
+ * with them, anyone could forge sessions, client links and signed acceptance
+ * records, or sign in with the documented passcode.
+ */
+export function assertSafeForProduction(e: Env, nodeEnv = process.env.NODE_ENV) {
+  if (nodeEnv !== "production") return;
+  if (e.SESSION_SECRET === DEV_SESSION_SECRET || e.SESSION_SECRET.length < 32) {
+    throw new Error("SESSION_SECRET must be set to a random value of at least 32 characters in production. Generate one with: openssl rand -base64 48");
+  }
+  if (!e.DEMO_MODE && e.OPERATOR_PASSCODE === DEMO_PASSCODE) {
+    throw new Error("OPERATOR_PASSCODE is still the public demo value. Set your own, or set DEMO_MODE=true for a public demo with per-visitor workspaces.");
+  }
+}
+
 export function env(): Env {
   if (!cached) {
     const raw: Record<string, string | undefined> = {};
     for (const [k, v] of Object.entries(process.env)) raw[k] = v === "" ? undefined : v;
-    cached = schema.parse(raw);
+    const parsed = schema.parse(raw);
+    assertSafeForProduction(parsed);
+    cached = parsed;
   }
   return cached;
 }

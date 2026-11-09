@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import type { DB } from "../db";
 import { disputes, milestones, webhookEvents, type Dispute, type Milestone } from "../db/schema";
 import { RailError, type DisputeInfo, type PaymentRail, type WebhookEvent } from "../payments/rail";
@@ -22,32 +22,53 @@ export async function getDisputeRow(db: DB, disputeId: string): Promise<Dispute>
   return d;
 }
 
-/** Insert or update our copy of a Braintree dispute and draft its evidence pack. */
-export async function upsertDispute(db: DB, info: DisputeInfo, source: "webhook" | "reconcile"): Promise<Dispute | null> {
+/**
+ * Insert or update our copy of a Braintree dispute and draft its evidence pack.
+ * The webhook or search result only says which dispute changed; the values we
+ * store are always re-read from Braintree, so a late or forged payload cannot
+ * set a status, amount or date.
+ */
+export async function upsertDispute(db: DB, rail: PaymentRail, hint: DisputeInfo, source: "webhook" | "reconcile", eventAt?: Date): Promise<Dispute | null> {
+  let info: DisputeInfo;
+  try {
+    info = await rail.getDispute(hint.id);
+  } catch {
+    return null;
+  }
   const m = await milestoneByTransaction(db, info.transactionId);
   if (!m) return null;
   const [existing] = await db.select().from(disputes).where(eq(disputes.id, info.id));
   if (existing) {
+    if (eventAt && existing.lastEventAt && eventAt < existing.lastEventAt) return existing;
+    const patch: Partial<Dispute> = { updatedAt: new Date(), ...(eventAt ? { lastEventAt: eventAt } : {}) };
     if (existing.status !== info.status) {
-      await db.update(disputes).set({ status: info.status, updatedAt: new Date() }).where(eq(disputes.id, info.id));
+      patch.status = info.status;
+      if (["won", "lost", "accepted", "expired", "auto_accepted"].includes(info.status)) patch.outcomeAt = new Date();
+    }
+    await db.update(disputes).set(patch).where(eq(disputes.id, info.id));
+    if (patch.status) {
       await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "dispute.updated", message: `Dispute ${info.id} is now ${info.status.replace(/_/g, " ")}`, data: { disputeId: info.id, status: info.status, source } });
     }
     return getDisputeRow(db, info.id);
   }
   const pack = m.acceptanceRecord ? evidencePack(JSON.parse(m.acceptanceRecord) as AcceptanceRecord, m.acceptanceSignature ?? "") : null;
-  await db.insert(disputes).values({
-    id: info.id,
-    milestoneId: m.id,
-    transactionId: info.transactionId,
-    status: info.status,
-    reason: info.reason,
-    kind: info.kind,
-    amountCents: info.amountCents,
-    replyByDate: info.replyByDate,
-    evidencePack: pack,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  });
+  await db
+    .insert(disputes)
+    .values({
+      id: info.id,
+      milestoneId: m.id,
+      transactionId: info.transactionId,
+      status: info.status,
+      reason: info.reason,
+      kind: info.kind,
+      amountCents: info.amountCents,
+      replyByDate: info.replyByDate,
+      evidencePack: pack,
+      lastEventAt: eventAt ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .onConflictDoNothing();
   const p = await getProject(db, m.projectId);
   await audit(db, {
     projectId: m.projectId,
@@ -94,7 +115,9 @@ export function chunkEvidence(text: string, limit = TEXT_EVIDENCE_LIMIT): string
 }
 
 /** Operator approves the drafted pack; we submit it to Braintree and finalize. */
-export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, disputeId: string, editedPack?: string): Promise<Dispute> {
+export const SANDBOX_WIN_MARKER = "compelling_evidence";
+
+export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, disputeId: string, editedPack?: string, opts: { sandboxMarkCompelling?: boolean } = {}): Promise<Dispute> {
   const d = await getDisputeRow(db, disputeId);
   const m = await getMilestone(db, d.milestoneId);
   if (d.submittedAt) throw new ServiceError("Evidence was already submitted for this dispute", 409);
@@ -102,10 +125,17 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
   if (!m.acceptanceRecord || !m.acceptanceSignature || !verifyRecord(m.acceptanceRecord, m.acceptanceSignature)) {
     throw new ServiceError("The acceptance record is missing or its signature does not verify", 409);
   }
-  const pack = (editedPack ?? d.evidencePack ?? "").trim();
+  let pack = (editedPack ?? d.evidencePack ?? "").trim();
   if (!pack) throw new ServiceError("The evidence pack is empty");
+  // Braintree's sandbox decides a dispute's outcome from a test value in the evidence. Sandbox and test rail only, and only when the operator ticks it.
+  if (opts.sandboxMarkCompelling && rail.mode !== "production") pack = `${pack}\n${SANDBOX_WIN_MARKER}`;
   const now = new Date();
-  await db.update(disputes).set({ approvedAt: now, evidencePack: pack, updatedAt: now }).where(eq(disputes.id, d.id));
+  // Claim the dispute so two quick clicks cannot submit evidence twice.
+  const claim = await db
+    .update(disputes)
+    .set({ approvedAt: now, evidencePack: pack, updatedAt: now })
+    .where(and(eq(disputes.id, d.id), isNull(disputes.approvedAt), isNull(disputes.submittedAt)));
+  if (claim.rowsAffected !== 1) throw new ServiceError("Evidence for this dispute is already being submitted", 409);
   await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "operator", type: "dispute.evidence_approved", message: "Operator approved the evidence pack", data: { disputeId: d.id } });
 
   const ids: string[] = [];
@@ -116,11 +146,15 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
     final = await rail.finalizeDispute(d.id);
   } catch (err) {
     const e = err instanceof RailError ? err : new RailError(String(err));
-    await db.update(disputes).set({ evidenceIds: ids, updatedAt: new Date() }).where(eq(disputes.id, d.id));
+    // Release the claim so the operator can try again, keeping any evidence ids Braintree already took.
+    await db.update(disputes).set({ evidenceIds: ids, approvedAt: null, updatedAt: new Date() }).where(eq(disputes.id, d.id));
     await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "dispute.submit_failed", message: `Submitting evidence failed: ${e.message}`, data: { disputeId: d.id, code: e.code, evidenceIds: ids } });
     throw new ServiceError(e.message, 502);
   }
-  await db.update(disputes).set({ submittedAt: new Date(), evidenceIds: ids, status: final.status, updatedAt: new Date() }).where(eq(disputes.id, d.id));
+  await db
+    .update(disputes)
+    .set({ submittedAt: new Date(), evidenceIds: ids, status: final.status, updatedAt: new Date(), ...(["won", "lost"].includes(final.status) ? { outcomeAt: new Date() } : {}) })
+    .where(eq(disputes.id, d.id));
   await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "dispute.evidence_submitted", message: `Submitted ${ids.length} evidence item(s) and finalized. Dispute is now ${final.status.replace(/_/g, " ")}.`, data: { disputeId: d.id, evidenceIds: ids, status: final.status } });
   return getDisputeRow(db, d.id);
 }
@@ -130,7 +164,7 @@ export async function syncDisputes(db: DB, rail: PaymentRail, milestoneId: strin
   const m = await getMilestone(db, milestoneId);
   if (!m.transactionId || m.state !== "released") return [];
   const found = await rail.findDisputes(m.transactionId);
-  for (const info of found) await upsertDispute(db, info, "reconcile");
+  for (const info of found) await upsertDispute(db, rail, info, "reconcile");
   return found;
 }
 
@@ -144,13 +178,18 @@ export async function handleWebhook(db: DB, rail: PaymentRail, signature: string
     return { status: 400, outcome: "signature rejected" };
   }
   const eventId = `${event.kind}:${event.subjectId ?? "none"}:${event.timestamp}`;
-  const [seen] = await db.select().from(webhookEvents).where(eq(webhookEvents.id, eventId));
-  if (seen) return { status: 200, outcome: `duplicate of ${eventId}` };
+  // Insert first: the unique id is the lock, so two copies of one event cannot both run.
+  const claimed = await db
+    .insert(webhookEvents)
+    .values({ id: eventId, eventType: event.kind, resourceId: event.subjectId, verified: true, payload: payload.slice(0, 20000), outcome: "processing", receivedAt: new Date() })
+    .onConflictDoNothing()
+    .returning({ id: webhookEvents.id });
+  if (claimed.length === 0) return { status: 200, outcome: `duplicate of ${eventId}` };
 
   let outcome = "ignored";
   if (event.dispute) {
-    const row = await upsertDispute(db, event.dispute, "webhook");
-    outcome = row ? `dispute ${row.id} ${row.status}` : "dispute for an unknown transaction";
+    const row = await upsertDispute(db, rail, event.dispute, "webhook", new Date(event.timestamp));
+    outcome = row ? `dispute ${row.id} ${row.status}` : "dispute not found at Braintree or not tracked here";
   } else if (event.transaction) {
     const m = await milestoneByTransaction(db, event.transaction.transactionId);
     if (m) {
@@ -158,14 +197,6 @@ export async function handleWebhook(db: DB, rail: PaymentRail, signature: string
       outcome = `reconciled: ${r.action}`;
     } else outcome = "transaction not tracked here";
   }
-  await db.insert(webhookEvents).values({
-    id: eventId,
-    eventType: event.kind,
-    resourceId: event.subjectId,
-    verified: true,
-    payload: payload.slice(0, 20000),
-    outcome,
-    receivedAt: new Date(),
-  });
+  await db.update(webhookEvents).set({ outcome }).where(eq(webhookEvents.id, eventId));
   return { status: 200, outcome };
 }

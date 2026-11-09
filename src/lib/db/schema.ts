@@ -59,6 +59,8 @@ export const projects = sqliteTable("projects", {
   scope: text("scope").notNull(),
   currency: text("currency").notNull().default("USD"),
   sentAt: integer("sent_at", { mode: "timestamp_ms" }),
+  /** Part of the client link signature. Rotating it revokes every old link. */
+  linkSecret: text("link_secret").notNull().default(""),
   isSample: integer("is_sample", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
 });
@@ -94,6 +96,10 @@ export const milestones = sqliteTable(
     receiptNumber: text("receipt_number"),
     changeNote: text("change_note"),
     fundingAttempt: integer("funding_attempt").notNull().default(0),
+    /** The state a releasing or voiding claim was taken from, to return to if the Braintree call fails. */
+    claimedFrom: text("claimed_from"),
+    /** Set by reconcile when the app and Braintree disagree in a way only a person can resolve. */
+    attention: text("attention"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(now),
   },
@@ -129,6 +135,8 @@ export const deliveryFiles = sqliteTable("delivery_files", {
     .references(() => deliveries.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   mime: text("mime").notNull(),
+  /** "deliverable": the file is the work itself. "notes": the freelancer's own statement about the work. */
+  role: text("role").notNull().default("notes"),
   text: text("text").notNull(),
 });
 
@@ -149,9 +157,13 @@ export const checks = sqliteTable("checks", {
   progress: text("progress", { mode: "json" }).$type<CheckProgress>(),
   /** Set when the scripted checker stood in for the model, with the reason in plain words. */
   fallbackReason: text("fallback_reason"),
+  /** Tampering found while reading: hidden text and instructions aimed at the checker. */
+  findings: text("findings", { mode: "json" }).$type<CheckFinding[]>(),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull().default(now),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
 });
+
+export type CheckFinding = { kind: "hidden_text" | "injected_instruction"; source: string; excerpt: string };
 
 export type CheckProgress = {
   phase: "reading" | "exploring" | "judging" | "saving";
@@ -159,7 +171,8 @@ export type CheckProgress = {
   criteria: Record<string, "waiting" | "checking" | "done">;
 };
 
-export type EvidenceItem = { source: string; quote: string };
+export type EvidenceItem = { source: string; quote: string; kind?: "page" | "deliverable_file" | "notes_file" | "repository" };
+export type DroppedQuote = { source: string; quote: string; reason: string };
 
 export const verdicts = sqliteTable("verdicts", {
   id: text("id").primaryKey(),
@@ -172,6 +185,8 @@ export const verdicts = sqliteTable("verdicts", {
   verdict: text("verdict").notNull(),
   reasoning: text("reasoning").notNull(),
   evidence: text("evidence", { mode: "json" }).$type<EvidenceItem[]>().notNull(),
+  /** Quotes the checker gave that failed verification, with the reason each was removed. */
+  dropped: text("dropped", { mode: "json" }).$type<DroppedQuote[]>().notNull().default([]),
   note: text("note"),
 });
 
@@ -217,6 +232,9 @@ export const disputes = sqliteTable("disputes", {
   approvedAt: integer("approved_at", { mode: "timestamp_ms" }),
   submittedAt: integer("submitted_at", { mode: "timestamp_ms" }),
   evidenceIds: text("evidence_ids", { mode: "json" }).$type<string[]>(),
+  /** Timestamp of the newest webhook applied, so a late, older event cannot roll the status back. */
+  lastEventAt: integer("last_event_at", { mode: "timestamp_ms" }),
+  outcomeAt: integer("outcome_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().default(now),
 });

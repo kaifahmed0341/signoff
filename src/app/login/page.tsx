@@ -10,7 +10,8 @@ export const metadata = { title: "Sign in" };
 
 export default function LoginPage() {
   const e = env();
-  const showHint = !e.DEMO_MODE && e.OPERATOR_PASSCODE === "signoff-demo";
+  // The passcode is only shown and filled in on a local development server.
+  const showHint = process.env.NODE_ENV !== "production" && !e.DEMO_MODE && e.OPERATOR_PASSCODE === "signoff-demo";
   return (
     <div className="min-h-screen grid place-items-center px-4">
       <div className="w-full max-w-sm">

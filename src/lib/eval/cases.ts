@@ -104,7 +104,7 @@ export async function runEvalCase(db: DB, rail: PaymentRail, workspaceId: string
   const files = [];
   for (const f of c.files ?? []) {
     const bytes = new Uint8Array(await readFile(path.join(process.cwd(), "public", f)));
-    files.push(await fileToText(path.basename(f), f.endsWith(".pdf") ? "application/pdf" : "text/plain", bytes));
+    files.push({ ...(await fileToText(path.basename(f), f.endsWith(".pdf") ? "application/pdf" : "text/plain", bytes)), role: "deliverable" as const });
   }
   const d = await submitDelivery(db, m.id, { links: c.links(origin), notes: "", files });
   const t = Date.now();

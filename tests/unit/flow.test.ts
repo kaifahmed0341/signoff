@@ -76,7 +76,7 @@ describe("the full loop on the fake rail with the scripted checker", () => {
     const d2 = await submitDelivery(db, m0.id, { links: sampleLinks(2), notes: "Fixed", files: [] });
     await runCheck(db, m0.id, d2);
     const v2 = await verdictsFor(m0.id);
-    expect(v2.every((v) => v.verdict === "met")).toBe(true);
+    expect(v2.map((v) => [v.verdict, v.note, JSON.stringify(v.dropped)])).toEqual(v2.map(() => ["met", null, "[]"]));
 
     const released = await acceptAndRelease(db, rail, m0.id, { signerName: "Robin Client" });
     expect(released.state).toBe("released");
@@ -136,7 +136,7 @@ describe("the full loop on the fake rail with the scripted checker", () => {
 });
 
 describe("AI checker with a model (mocked, deterministic)", () => {
-  it("judges each criterion separately, keeps real quotes, drops invented ones, records progress", async () => {
+  it("judges in one call, keeps real quotes, drops invented ones with reasons, records progress", async () => {
     const m = await firstMilestone();
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
     const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
@@ -148,18 +148,16 @@ describe("AI checker with a model (mocked, deterministic)", () => {
       address: { verdict: "not_met", reasoning: "No address on the page.", evidence: [] },
       waitlist: { verdict: "met", reasoning: "Signup form present.", evidence: [{ source: "anything", quote: "Join the waitlist with this signup form:" }] },
     };
-    const model = mockJudge((prompt) => {
-      const key = Object.keys(byCriterion).find((k) => prompt.includes(`Criterion: `) && prompt.split("\n")[0].includes(k));
-      return byCriterion[key!];
-    });
+    const model = mockJudge((criterion) => byCriterion[Object.keys(byCriterion).find((k) => criterion.includes(k))!]);
     setModelForTests({ model: model.model, label: "mock/test" });
     const checkId = await runCheck(db, m.id, d);
-    expect(model.calls()).toBe(4); // one judge call per criterion, no exploration for a page without links
+    expect(model.calls()).toBe(1); // one judge call for all criteria, no exploration for a page without links
     const vs = await verdictsFor(m.id);
     const byPos = (n: number) => vs[n - 1];
     expect(byPos(1).verdict).toBe("met");
     expect(byPos(2).verdict).toBe("needs_person");
-    expect(byPos(2).note).toMatch(/could not be found/);
+    expect(byPos(2).note).toMatch(/removed/);
+    expect(byPos(2).dropped[0].reason).toMatch(/not found/);
     expect(byPos(3).verdict).toBe("not_met");
     expect(byPos(4).evidence[0].source).toBe(page);
     const check = await latestCheck(db, m.id);
@@ -246,21 +244,23 @@ type GenOptions = { prompt: { role: string; content: unknown }[]; tools?: unknow
 
 const usage = { inputTokens: { total: 1, noCache: 1, cacheRead: undefined, cacheWrite: undefined }, outputTokens: { total: 1, text: 1, reasoning: undefined } };
 
-/** A mock model: judge calls (no tools) get `judge(prompt)`; exploration calls (with tools) get `explore(step)`. */
-function mockJudge(judge: (prompt: string) => object, explore?: (step: number) => Record<string, unknown>) {
+/**
+ * A mock model. Judge calls (no tools) get one result per criterion from
+ * `judge(criterionText)`; exploration calls (with tools) get `explore(step)`.
+ */
+function mockJudge(judge: (criterion: string) => object, explore?: (step: number) => Record<string, unknown>) {
   let calls = 0;
   let step = 0;
   const model = new MockLanguageModelV4({
     doGenerate: (async (opts: GenOptions) => {
       calls++;
-      const prompt = JSON.stringify(opts.prompt.filter((m) => m.role === "user").map((m) => m.content));
-      const text = prompt.replace(/\\n/g, "\n");
+      const text = JSON.stringify(opts.prompt.filter((m) => m.role === "user").map((m) => m.content)).replace(/\\n/g, "\n");
       if (opts.tools?.length) {
         const part = explore ? explore(step++) : { type: "text", text: "DONE" };
         return { content: [part as never], finishReason: { unified: part.type === "tool-call" ? "tool-calls" : "stop", raw: undefined }, usage, warnings: [] };
       }
-      const body = text.slice(text.indexOf("Criterion: "));
-      return { content: [{ type: "text", text: JSON.stringify(judge(body)) }], finishReason: { unified: "stop", raw: undefined }, usage, warnings: [] };
+      const results = [...text.matchAll(/\bc(\d+): ([^\n]+)/g)].map((m) => ({ criterionId: `c${m[1]}`, ...judge(m[2]) }));
+      return { content: [{ type: "text", text: JSON.stringify({ results }) }], finishReason: { unified: "stop", raw: undefined }, usage, warnings: [] };
     }) as never,
   });
   return { model, calls: () => calls };

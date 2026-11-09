@@ -1,5 +1,6 @@
 import { lookup as dnsLookup } from "node:dns";
 import { isIP } from "node:net";
+import ipaddr from "ipaddr.js";
 import { Agent, fetch as undiciFetch } from "undici";
 
 /**
@@ -20,28 +21,26 @@ export class FetchBlockedError extends Error {
   }
 }
 
-export function isPrivateAddress(ip: string): boolean {
-  const v = isIP(ip);
-  if (v === 4) {
-    const [a, b] = ip.split(".").map(Number);
-    return (
-      a === 0 || a === 10 || a === 127 || a >= 224 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0) ||
-      (a === 198 && (b === 18 || b === 19))
-    );
+/**
+ * True for anything that is not an ordinary public unicast address: loopback,
+ * private, link-local, carrier NAT, multicast, reserved, unique-local, and the
+ * IPv6 forms that embed an IPv4 address (mapped, NAT64, 6to4, Teredo), whose
+ * embedded address is checked as well. Unparseable input counts as private.
+ */
+export function isPrivateAddress(raw: string): boolean {
+  const ip = raw.replace(/^\[|\]$/g, "").split("%")[0];
+  if (!ipaddr.isValid(ip)) return true;
+  let addr = ipaddr.parse(ip);
+  if (addr.kind() === "ipv6") {
+    const v6 = addr as ipaddr.IPv6;
+    if (v6.isIPv4MappedAddress()) addr = v6.toIPv4Address();
+    else {
+      const parts = v6.parts;
+      // ::a.b.c.d (IPv4-compatible, deprecated) embeds an IPv4 address too.
+      if (parts.slice(0, 6).every((p) => p === 0) && (parts[6] !== 0 || parts[7] > 1)) return true;
+    }
   }
-  if (v === 6) {
-    const s = ip.toLowerCase();
-    if (s === "::" || s === "::1") return true;
-    const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateAddress(mapped[1]);
-    return s.startsWith("fc") || s.startsWith("fd") || s.startsWith("fe8") || s.startsWith("fe9") || s.startsWith("fea") || s.startsWith("feb");
-  }
-  return true;
+  return addr.range() !== "unicast";
 }
 
 type LookupCb = (err: NodeJS.ErrnoException | null, address: string | { address: string; family: number }[], family?: number) => void;
@@ -90,7 +89,11 @@ function checkUrl(raw: string, policy: FetchPolicy): { url: URL; self: boolean }
   if (!policy.allowedHosts.map((h) => h.toLowerCase()).includes(host)) {
     throw new FetchBlockedError(`${host} is not one of the hosts in this delivery`);
   }
-  if (isIP(host) && isPrivateAddress(host)) throw new FetchBlockedError("Private addresses cannot be read");
+  // URL keeps IPv6 literals in brackets ("[::1]"). Node connects to IP
+  // literals without a DNS lookup, so the connect-time guard never sees them:
+  // check them here, after removing the brackets.
+  const bare = host.replace(/^\[|\]$/g, "");
+  if (isIP(bare) && isPrivateAddress(bare)) throw new FetchBlockedError("Private and internal addresses cannot be read");
   return { url, self: false };
 }
 

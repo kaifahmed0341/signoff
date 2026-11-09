@@ -5,6 +5,12 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   // Every page reads live database and PayPal state, so pages render per request.
   serverExternalPackages: ["@libsql/client", "libsql", "unpdf"],
+  // Database migrations are read from disk at runtime; ship them with every serverless function.
+  outputFileTracingIncludes: { "/**": ["./drizzle/**/*"] },
+  experimental: {
+    // Uploads: up to 3 files of 1 MB each plus form overhead, below the 4.5 MB request cap on Vercel.
+    serverActions: { bodySizeLimit: "4mb" },
+  },
   turbopack: {
     rules: {
       "*.css": {

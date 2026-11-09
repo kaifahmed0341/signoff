@@ -12,7 +12,8 @@ import {
 } from "../db/schema";
 import {
   canTransition,
-  eventForTransactionStatus,
+  remoteOutcome,
+  revertClaim,
   holdHealth,
   isHoldActive,
   transition,
@@ -21,7 +22,7 @@ import {
 } from "../domain/milestone-machine";
 import { RailError, type Hold, type PaymentRail } from "../payments/rail";
 import { audit, type Actor } from "./audit";
-import { canonicalJson, newId, sign, verifySignature } from "./ids";
+import { canonicalJson, newId, newLinkSecret, shareToken, sign, verifyShareToken, verifySignature } from "./ids";
 
 export class ServiceError extends Error {
   constructor(message: string, public readonly status = 400) {
@@ -44,6 +45,23 @@ export async function getProject(db: DB, projectId: string): Promise<Project> {
   const [p] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!p) throw new ServiceError("Project not found", 404);
   return p;
+}
+
+/** Client access: the project behind a valid, unrevoked share link. */
+export async function projectFromShareLink(db: DB, projectId: string, token: string | null | undefined): Promise<Project> {
+  const p = await getProject(db, projectId).catch(() => null);
+  if (!p || !token || !verifyShareToken(p.id, p.linkSecret, token)) throw new ServiceError("This link is not valid", 403);
+  return p;
+}
+
+export function shareTokenFor(p: Project): string {
+  return shareToken(p.id, p.linkSecret);
+}
+
+/** Replaces the project's link secret. Every client link and receipt link sent before stops working. */
+export async function rotateShareLink(db: DB, projectId: string) {
+  await db.update(projects).set({ linkSecret: newLinkSecret() }).where(eq(projects.id, projectId));
+  await audit(db, { projectId, actor: "operator", type: "link.rotated", message: "The client link was replaced. Old links no longer work." });
 }
 
 /** Operator access: the project must belong to the caller's workspace. */
@@ -125,6 +143,7 @@ export async function createProject(
   await db.insert(projects).values({
     id: projectId,
     workspaceId: input.workspaceId,
+    linkSecret: newLinkSecret(),
     name: input.name,
     clientName: input.clientName,
     clientEmail: input.clientEmail ?? null,
@@ -264,6 +283,26 @@ export function verifyRecord(json: string, signature: string): boolean {
   return verifySignature("acceptance-record", json, signature);
 }
 
+/** Put a claimed milestone back where it was, clearing anything the failed attempt wrote. */
+async function revert(db: DB, m: Milestone, clear: Partial<Milestone> = {}) {
+  const to = revertClaim(m.state as MilestoneState, m.claimedFrom);
+  await db
+    .update(milestones)
+    .set({ ...clear, state: to, claimedFrom: null, updatedAt: new Date() })
+    .where(and(eq(milestones.id, m.id), eq(milestones.state, m.state)));
+}
+
+const CLEAR_ACCEPTANCE: Partial<Milestone> = { acceptedBy: null, acceptedAt: null, acceptanceRecord: null, acceptanceSignature: null };
+
+/**
+ * The client signs off and the money is released. Order matters:
+ * 1. validate the amount;
+ * 2. claim the milestone (in_review to releasing) and write the signed record
+ *    in the same compare-and-set, so a racing decline or second sign-off loses
+ *    before any money moves, and the record always matches the claim that won;
+ * 3. call Braintree;
+ * 4. settle the claim, or undo it if Braintree refused.
+ */
 export async function acceptAndRelease(
   db: DB,
   rail: PaymentRail,
@@ -273,19 +312,23 @@ export async function acceptAndRelease(
   const m = await getMilestone(db, milestoneId);
   if (m.state !== "in_review") throw new ServiceError("Only a delivery that is ready for sign-off can be released", 409);
   if (!m.transactionId) throw new ServiceError("No hold to release", 409);
-  const signer = input.signerName.trim();
+  const signer = input.signerName.trim().slice(0, 120);
   if (signer.length < 2) throw new ServiceError("Type your name to sign off");
   const amount = input.amountCents ?? m.heldCents;
-  if (amount <= 0 || amount > m.heldCents) throw new ServiceError("Release amount must be above zero and no more than the hold");
+  if (!Number.isInteger(amount) || amount <= 0 || amount > m.heldCents) {
+    throw new ServiceError("Release amount must be a whole number of cents, above zero and no more than the hold");
+  }
 
   const at = new Date();
   const record = await buildAcceptanceRecord(db, m, signer, amount, at);
   const { json, signature } = signRecord(record);
-  // Record the sign-off before money moves, so the evidence exists even if the response is lost.
-  await db
-    .update(milestones)
-    .set({ acceptedBy: signer, acceptedAt: at, acceptanceRecord: json, acceptanceSignature: signature })
-    .where(eq(milestones.id, m.id));
+  const claimed = await applyEvent(db, m, "CLAIM_RELEASE", {
+    claimedFrom: m.state,
+    acceptedBy: signer,
+    acceptedAt: at,
+    acceptanceRecord: json,
+    acceptanceSignature: signature,
+  });
   await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "client", type: "acceptance.signed", message: `${signer} signed off on "${m.title}"`, data: { signature: signature.slice(0, 16) } });
 
   let hold: Hold;
@@ -293,19 +336,22 @@ export async function acceptAndRelease(
     hold = await rail.release(m.transactionId, amount === m.heldCents ? undefined : amount);
   } catch (err) {
     const e = err instanceof RailError ? err : new RailError(String(err));
-    await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "release.failed", message: `Release failed: ${e.message}`, data: { code: e.code, transactionId: m.transactionId } });
-    throw new ServiceError(e.message, 502);
+    // The call may have gone through before the error; trust Braintree's answer.
+    const now = await rail.getHold(m.transactionId).catch(() => null);
+    if (!now || remoteOutcome(now.status) !== "released") {
+      await revert(db, claimed, CLEAR_ACCEPTANCE);
+      await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "release.failed", message: `Release failed, the sign-off was undone: ${e.message}`, data: { code: e.code, transactionId: m.transactionId } });
+      throw new ServiceError(e.message, 502);
+    }
+    hold = now;
   }
   const receiptNumber = `SO-${at.getUTCFullYear()}-${m.id.slice(-6).toUpperCase()}`;
-  const next = await applyEvent(db, m, "CAPTURE", {
+  const next = await applyEvent(db, claimed, "CAPTURE", {
+    claimedFrom: null,
     transactionStatus: hold.status,
     settledCents: hold.amountCents,
     releasedAt: at,
     receiptNumber,
-    acceptedBy: signer,
-    acceptedAt: at,
-    acceptanceRecord: json,
-    acceptanceSignature: signature,
   });
   const partial = amount < m.heldCents;
   await audit(db, {
@@ -324,24 +370,39 @@ export async function acceptAndRelease(
 export async function requestChanges(db: DB, milestoneId: string, note: string): Promise<Milestone> {
   const m = await getMilestone(db, milestoneId);
   if (note.trim().length < 3) throw new ServiceError("Say what needs to change");
-  const next = await applyEvent(db, m, "REQUEST_CHANGES", { changeNote: note.trim() });
-  await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "client", type: "changes.requested", message: "Client asked for changes. The hold stays in place.", data: { note: note.trim() } });
+  const next = await applyEvent(db, m, "REQUEST_CHANGES", { changeNote: note.trim().slice(0, 4000) });
+  await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "client", type: "changes.requested", message: "Client asked for changes. The hold stays in place.", data: { note: note.trim().slice(0, 4000) } });
   return next;
 }
 
+/**
+ * The client declines and the hold is voided. Claim first (to voiding), then
+ * re-read the transaction and refuse unless it is still only authorized, so a
+ * decline can never void money that a sign-off already released.
+ */
 export async function declineMilestone(db: DB, rail: PaymentRail, milestoneId: string, reason: string, actor: Actor = "client"): Promise<Milestone> {
   const m = await getMilestone(db, milestoneId);
-  if (!canTransition(m.state as MilestoneState, "VOID")) throw new ServiceError(`A ${m.state} milestone cannot be declined`, 409);
+  if (!canTransition(m.state as MilestoneState, "CLAIM_VOID")) throw new ServiceError(`A ${m.state.replace(/_/g, " ")} milestone cannot be declined`, 409);
   if (!m.transactionId) throw new ServiceError("No hold to release", 409);
+  const claimed = await applyEvent(db, m, "CLAIM_VOID", { claimedFrom: m.state });
   let hold: Hold;
   try {
+    const before = await rail.getHold(m.transactionId);
+    if (before.status !== "authorized") {
+      throw new RailError(`The transaction is ${before.status.replace(/_/g, " ")}, so there is no hold to void`, "not_authorized", m.transactionId);
+    }
     hold = await rail.void(m.transactionId);
   } catch (err) {
     const e = err instanceof RailError ? err : new RailError(String(err));
-    await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "void.failed", message: `Void failed: ${e.message}`, data: { code: e.code, transactionId: m.transactionId } });
-    throw new ServiceError(e.message, 502);
+    const now = await rail.getHold(m.transactionId).catch(() => null);
+    if (!now || now.status !== "voided") {
+      await revert(db, claimed);
+      await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "void.failed", message: `Void failed, nothing changed: ${e.message}`, data: { code: e.code, transactionId: m.transactionId } });
+      throw new ServiceError(e.message, 502);
+    }
+    hold = now;
   }
-  const next = await applyEvent(db, m, "VOID", { transactionStatus: hold.status, changeNote: reason || m.changeNote });
+  const next = await applyEvent(db, claimed, "VOID", { claimedFrom: null, transactionStatus: hold.status, changeNote: reason.slice(0, 2000) || m.changeNote });
   await audit(db, { projectId: m.projectId, milestoneId: m.id, actor, type: "hold.voided", message: `Declined. The hold of ${money(m.heldCents, hold.currency)} was voided and nothing was charged.`, data: { transactionId: hold.transactionId, status: hold.status, reason } });
   return next;
 }
@@ -350,32 +411,62 @@ export async function declineMilestone(db: DB, rail: PaymentRail, milestoneId: s
 
 export type ReconcileResult = { milestoneId: string; local: string; remote: string | null; action: string };
 
-/** Compare local state with Braintree and repair drift. Safe to run any time. */
+/**
+ * Compare local state with Braintree and repair drift. Safe to run any time.
+ * - A claim left behind by a crash (releasing, voiding) is settled from what Braintree says.
+ * - A hold that expired is marked expired.
+ * - A disagreement only a person can resolve, such as released here but voided
+ *   at Braintree, is flagged on the milestone and on the timeline, never papered over.
+ */
 export async function reconcileMilestone(db: DB, rail: PaymentRail, milestoneId: string, actor: Actor = "system"): Promise<ReconcileResult> {
   let m = await getMilestone(db, milestoneId);
   if (!m.transactionId) return { milestoneId, local: m.state, remote: null, action: "no hold" };
   const hold = await rail.getHold(m.transactionId);
-  let action = "in sync";
-  const event = eventForTransactionStatus(hold.status);
+  const remote = remoteOutcome(hold.status);
   const state = m.state as MilestoneState;
-  if (event && canTransition(state, event)) {
-    if (event === "CAPTURE" && state !== "in_review") {
-      action = `remote is ${hold.status} but local is ${state}; flagged for review`;
-    } else {
-      m = await applyEvent(db, m, event, { transactionStatus: hold.status, settledCents: event === "CAPTURE" ? hold.amountCents : m.settledCents });
-      action = `moved to ${m.state}`;
+  let action = "in sync";
+  let attention: string | null = null;
+
+  if (state === "releasing") {
+    if (remote === "released") {
+      m = await applyEvent(db, m, "CAPTURE", { claimedFrom: null, transactionStatus: hold.status, settledCents: hold.amountCents, releasedAt: m.acceptedAt ?? new Date(), receiptNumber: m.receiptNumber ?? `SO-${new Date().getUTCFullYear()}-${m.id.slice(-6).toUpperCase()}` });
+      action = "finished an interrupted release";
+    } else if (remote === "held") {
+      await revert(db, m, CLEAR_ACCEPTANCE);
+      action = "undid an interrupted sign-off; the hold is still in place";
+    } else attention = `A sign-off was in progress but Braintree reports the transaction as ${hold.status}.`;
+  } else if (state === "voiding") {
+    if (remote === "voided") {
+      m = await applyEvent(db, m, "VOID", { claimedFrom: null, transactionStatus: hold.status });
+      action = "finished an interrupted decline";
+    } else if (remote === "held") {
+      await revert(db, m);
+      action = "undid an interrupted decline; the hold is still in place";
+    } else attention = `A decline was in progress but Braintree reports the transaction as ${hold.status}.`;
+  } else if (state === "released" && remote !== "released") {
+    attention = `This milestone is released here, but Braintree reports the transaction as ${hold.status}. The operator was not paid. Check the Braintree control panel.`;
+  } else if (state === "declined" && remote === "released") {
+    attention = `This milestone was declined here, but Braintree reports the transaction as ${hold.status}. The client may have been charged.`;
+  } else if (isHoldActive(state) && (remote === "expired" || holdHealth(Date.now(), m.authExpiresAt?.getTime()) === "expired")) {
+    if (canTransition(state, "EXPIRE")) {
+      m = await applyEvent(db, m, "EXPIRE", { transactionStatus: hold.status });
+      action = "hold expired";
     }
-  } else if (isHoldActive(state) && holdHealth(Date.now(), m.authExpiresAt?.getTime()) === "expired") {
-    m = await applyEvent(db, m, "EXPIRE", { transactionStatus: "authorization_expired" });
-    action = "hold expired locally";
-  } else if (hold.status !== m.transactionStatus) {
-    await db.update(milestones).set({ transactionStatus: hold.status, settledCents: event === "CAPTURE" ? hold.amountCents : m.settledCents }).where(eq(milestones.id, m.id));
-    action = `status updated to ${hold.status}`;
+  } else if (isHoldActive(state) && remote !== "held") {
+    attention = `The hold is active here, but Braintree reports the transaction as ${hold.status}.`;
   }
+
+  const patch: Partial<Milestone> = {};
+  if (hold.status !== m.transactionStatus) patch.transactionStatus = hold.status;
+  if ((attention ?? null) !== (m.attention ?? null)) patch.attention = attention;
+  if (Object.keys(patch).length) await db.update(milestones).set(patch).where(eq(milestones.id, m.id));
+  if (attention) action = `needs attention: ${attention}`;
+  else if (action === "in sync" && patch.transactionStatus) action = `status updated to ${hold.status}`;
+
   if (action !== "in sync") {
-    await audit(db, { projectId: m.projectId, milestoneId: m.id, actor, type: "reconciled", message: `Reconciled with Braintree: ${action}`, data: { transactionId: hold.transactionId, remote: hold.status } });
+    await audit(db, { projectId: m.projectId, milestoneId: m.id, actor, type: attention ? "reconcile.mismatch" : "reconciled", message: attention ?? `Reconciled with Braintree: ${action}`, data: { transactionId: hold.transactionId, remote: hold.status } });
   }
-  return { milestoneId, local: m.state, remote: hold.status, action };
+  return { milestoneId, local: (await getMilestone(db, milestoneId)).state, remote: hold.status, action };
 }
 
 export async function reconcileProject(db: DB, rail: PaymentRail, projectId: string) {

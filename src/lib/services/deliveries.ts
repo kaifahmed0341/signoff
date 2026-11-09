@@ -7,13 +7,15 @@ import { ServiceError, applyEvent, getMilestone } from "./milestones";
 
 export const MAX_LINKS = 5;
 export const MAX_FILES = 3;
-export const MAX_FILE_BYTES = 2_000_000;
+export const MAX_FILE_BYTES = 1_000_000;
+export const MAX_TOTAL_UPLOAD_BYTES = 3_000_000;
 export const MAX_FILE_TEXT = 100_000;
 
 export type DeliveryInput = {
   links: string[];
   notes: string;
-  files: { name: string; mime: string; text: string }[];
+  /** role "deliverable": the file is the work itself; "notes" (default): the freelancer's own statement about it. */
+  files: { name: string; mime: string; text: string; role?: "deliverable" | "notes" }[];
 };
 
 export function cleanLinks(raw: string[]): string[] {
@@ -45,7 +47,7 @@ export async function submitDelivery(db: DB, milestoneId: string, input: Deliver
   await db.insert(deliveries).values({ id, milestoneId: m.id, version, links, notes: input.notes.trim(), createdAt: new Date() });
   if (input.files.length > MAX_FILES) throw new ServiceError(`Attach at most ${MAX_FILES} files`);
   for (const f of input.files) {
-    await db.insert(deliveryFiles).values({ id: newId("df"), deliveryId: id, name: f.name.slice(0, 200), mime: f.mime, text: f.text.slice(0, MAX_FILE_TEXT) });
+    await db.insert(deliveryFiles).values({ id: newId("df"), deliveryId: id, name: f.name.slice(0, 200), mime: f.mime, role: f.role === "deliverable" ? "deliverable" : "notes", text: f.text.slice(0, MAX_FILE_TEXT) });
   }
   await audit(db, {
     projectId: m.projectId,

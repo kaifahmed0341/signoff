@@ -36,3 +36,66 @@ export const providerOptions = {
   google: { thinkingConfig: { thinkingLevel: "low" as const } },
   anthropic: {},
 };
+
+/** Extra Gemini models to try, in order, when the main one is rate-limited or down. Each has its own quota. */
+export function fallbackModels(): { model: LanguageModel; label: string }[] {
+  if (g.__signoffModelOverride) return [];
+  const e = env();
+  if (!e.GOOGLE_GENERATIVE_AI_API_KEY || resolveModel().label.startsWith("anthropic/")) return [];
+  const google = createGoogleGenerativeAI({ apiKey: e.GOOGLE_GENERATIVE_AI_API_KEY });
+  return e.GOOGLE_FALLBACK_MODELS.split(",")
+    .map((s) => s.trim())
+    .filter((s) => s && s !== e.GOOGLE_MODEL)
+    .map((id) => ({ model: google(id), label: `google/${id}` }));
+}
+
+function statusOf(err: unknown): number | undefined {
+  const e = err as { statusCode?: number; lastError?: { statusCode?: number }; errors?: { statusCode?: number }[] };
+  return e?.statusCode ?? e?.lastError?.statusCode ?? e?.errors?.at(-1)?.statusCode;
+}
+
+/** Seconds the provider asked us to wait, if it said and it is short enough to be worth it. */
+export function retryAfterSeconds(err: unknown): number | null {
+  const msg = err instanceof Error ? err.message : String(err);
+  const m = msg.match(/retry in ([\d.]+)s/i);
+  return m ? Number(m[1]) : null;
+}
+
+export function isRetryable(err: unknown): boolean {
+  const s = statusOf(err);
+  const msg = err instanceof Error ? err.message : String(err);
+  return s === 429 || s === 503 || s === 500 || /RESOURCE_EXHAUSTED|quota|overloaded|unavailable/i.test(msg);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Runs `call` with the main model; on a rate limit or outage waits once if the
+ * provider asks for a short pause, then moves to the next model in the chain.
+ * Throws the last error if every model fails.
+ */
+export async function withModelFallback<T>(
+  primary: { model: LanguageModel; label: string },
+  call: (model: LanguageModel) => Promise<T>,
+  opts: { maxWaitSeconds?: number } = {},
+): Promise<{ value: T; label: string }> {
+  const chain = [primary, ...fallbackModels()];
+  let last: unknown;
+  for (const m of chain) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return { value: await call(m.model), label: m.label };
+      } catch (err) {
+        last = err;
+        if (!isRetryable(err)) throw err;
+        const wait = retryAfterSeconds(err);
+        if (attempt === 0 && wait !== null && wait <= (opts.maxWaitSeconds ?? 20)) {
+          await sleep(Math.ceil(wait * 1000) + 250);
+          continue;
+        }
+        break;
+      }
+    }
+  }
+  throw last;
+}

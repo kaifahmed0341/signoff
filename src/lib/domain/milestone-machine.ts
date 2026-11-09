@@ -11,6 +11,8 @@ export const MILESTONE_STATES = [
   "funded", // Braintree authorization active, money held not charged
   "checking", // delivery submitted, checker agent running
   "in_review", // evidence report ready, client decides
+  "releasing", // claimed by a sign-off; the release call to Braintree is in flight
+  "voiding", // claimed by a decline; the void call to Braintree is in flight
   "changes_requested", // client asked for changes, hold still active
   "released", // transaction submitted for settlement, operator paid
   "declined", // authorization voided, hold released
@@ -26,11 +28,15 @@ export type MilestoneEvent =
   | "CHECK_COMPLETE"
   | "CHECK_FAILED"
   | "REQUEST_CHANGES"
+  | "CLAIM_RELEASE"
   | "CAPTURE"
+  | "CLAIM_VOID"
   | "VOID"
   | "EXPIRE";
 
-const HOLD_ACTIVE: MilestoneState[] = ["funded", "checking", "in_review", "changes_requested"];
+const HOLD_ACTIVE: MilestoneState[] = ["funded", "checking", "in_review", "changes_requested", "releasing", "voiding"];
+/** States a decline may claim from. */
+const VOIDABLE: MilestoneState[] = ["funded", "checking", "in_review", "changes_requested"];
 
 const TABLE: Record<MilestoneEvent, { from: MilestoneState[]; to: MilestoneState }> = {
   SEND: { from: ["draft"], to: "awaiting_funding" },
@@ -39,9 +45,14 @@ const TABLE: Record<MilestoneEvent, { from: MilestoneState[]; to: MilestoneState
   CHECK_COMPLETE: { from: ["checking"], to: "in_review" },
   CHECK_FAILED: { from: ["checking"], to: "funded" },
   REQUEST_CHANGES: { from: ["in_review"], to: "changes_requested" },
-  CAPTURE: { from: ["in_review"], to: "released" },
-  VOID: { from: HOLD_ACTIVE, to: "declined" },
-  EXPIRE: { from: HOLD_ACTIVE, to: "hold_expired" },
+  // Money moves in two steps: claim the milestone, call Braintree, then settle
+  // the claim. Only one claim can win, so a sign-off and a decline cannot both
+  // reach Braintree.
+  CLAIM_RELEASE: { from: ["in_review"], to: "releasing" },
+  CAPTURE: { from: ["releasing"], to: "released" },
+  CLAIM_VOID: { from: VOIDABLE, to: "voiding" },
+  VOID: { from: ["voiding"], to: "declined" },
+  EXPIRE: { from: VOIDABLE, to: "hold_expired" },
 };
 
 export class IllegalTransitionError extends Error {
@@ -63,6 +74,14 @@ export function transition(state: MilestoneState, event: MilestoneEvent): Milest
   return TABLE[event].to;
 }
 
+/** Where a failed claim goes back to. A void claim returns to the state it was taken from. */
+export function revertClaim(state: MilestoneState, claimedFrom: string | null | undefined): MilestoneState {
+  if (state === "releasing") return "in_review";
+  if (state === "voiding" && claimedFrom && VOIDABLE.includes(claimedFrom as MilestoneState)) return claimedFrom as MilestoneState;
+  if (state === "voiding") return "funded";
+  throw new IllegalTransitionError(state, "VOID");
+}
+
 export function isHoldActive(state: MilestoneState): boolean {
   return HOLD_ACTIVE.includes(state);
 }
@@ -77,6 +96,8 @@ export const STATE_LABEL: Record<MilestoneState, string> = {
   funded: "Funded, money held",
   checking: "Checking delivery",
   in_review: "Ready for sign-off",
+  releasing: "Releasing payment",
+  voiding: "Releasing the hold",
   changes_requested: "Changes requested",
   released: "Released to you",
   declined: "Declined, hold released",
@@ -99,20 +120,31 @@ export function holdHealth(now: number, authExpiresAt: number | null | undefined
   return "active";
 }
 
-/** Map a Braintree transaction status to the event that brings local state in line. */
-export function eventForTransactionStatus(status: string): MilestoneEvent | null {
+export type RemoteOutcome = "released" | "voided" | "expired" | "held" | "other";
+
+/** What a Braintree transaction status means for the money. */
+export function remoteOutcome(status: string): RemoteOutcome {
   switch (status) {
     case "submitted_for_settlement":
     case "settling":
     case "settlement_pending":
     case "settlement_confirmed":
     case "settled":
-      return "CAPTURE";
+      return "released";
     case "voided":
-      return "VOID";
+      return "voided";
     case "authorization_expired":
-      return "EXPIRE";
+      return "expired";
+    case "authorized":
+      return "held";
     default:
-      return null;
+      return "other";
   }
 }
+
+/** Client-facing labels: the client paid, the operator was paid. */
+export const CLIENT_STATE_LABEL: Partial<Record<MilestoneState, string>> = {
+  released: "Paid",
+  funded: "Funded, money held",
+  awaiting_funding: "Fund to start",
+};

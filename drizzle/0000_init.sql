@@ -21,6 +21,7 @@ CREATE TABLE `checks` (
 	`dropped_evidence` integer DEFAULT 0 NOT NULL,
 	`progress` text,
 	`fallback_reason` text,
+	`findings` text,
 	`started_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`finished_at` integer,
 	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -52,6 +53,7 @@ CREATE TABLE `delivery_files` (
 	`delivery_id` text NOT NULL,
 	`name` text NOT NULL,
 	`mime` text NOT NULL,
+	`role` text DEFAULT 'notes' NOT NULL,
 	`text` text NOT NULL,
 	FOREIGN KEY (`delivery_id`) REFERENCES `deliveries`(`id`) ON UPDATE no action ON DELETE cascade
 );
@@ -69,6 +71,8 @@ CREATE TABLE `disputes` (
 	`approved_at` integer,
 	`submitted_at` integer,
 	`evidence_ids` text,
+	`last_event_at` integer,
+	`outcome_at` integer,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	FOREIGN KEY (`milestone_id`) REFERENCES `milestones`(`id`) ON UPDATE no action ON DELETE cascade
@@ -128,6 +132,8 @@ CREATE TABLE `milestones` (
 	`receipt_number` text,
 	`change_note` text,
 	`funding_attempt` integer DEFAULT 0 NOT NULL,
+	`claimed_from` text,
+	`attention` text,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
@@ -144,6 +150,7 @@ CREATE TABLE `projects` (
 	`scope` text NOT NULL,
 	`currency` text DEFAULT 'USD' NOT NULL,
 	`sent_at` integer,
+	`link_secret` text DEFAULT '' NOT NULL,
 	`is_sample` integer DEFAULT false NOT NULL,
 	`created_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE cascade
@@ -173,6 +180,7 @@ CREATE TABLE `verdicts` (
 	`verdict` text NOT NULL,
 	`reasoning` text NOT NULL,
 	`evidence` text NOT NULL,
+	`dropped` text DEFAULT '[]' NOT NULL,
 	`note` text,
 	FOREIGN KEY (`check_id`) REFERENCES `checks`(`id`) ON UPDATE no action ON DELETE cascade,
 	FOREIGN KEY (`criterion_id`) REFERENCES `criteria`(`id`) ON UPDATE no action ON DELETE cascade
