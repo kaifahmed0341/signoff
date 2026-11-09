@@ -205,6 +205,28 @@ export class FakeRail implements PaymentRail {
     store().clockOffset += ms;
   }
 
+  /**
+   * Open a chargeback on a transaction, as Braintree's sample dispute_opened
+   * webhook describes it: the sample uses the same id for the dispute and the
+   * transaction, so the fake does too.
+   */
+  openDisputeFor(transactionId: string): string {
+    const t = this.get(transactionId);
+    if (!store().disputes.has(transactionId)) {
+      store().disputes.set(transactionId, {
+        id: transactionId,
+        transactionId,
+        status: "open",
+        reason: "fraud",
+        kind: "chargeback",
+        amountCents: t.amountCents,
+        replyByDate: new Date(this.now() + 20 * DAY).toISOString().slice(0, 10),
+        evidence: [],
+      });
+    }
+    return transactionId;
+  }
+
   disputeIdsFor(transactionId: string): string[] {
     return [...store().disputes.values()].filter((d) => d.transactionId === transactionId).map((d) => d.id);
   }

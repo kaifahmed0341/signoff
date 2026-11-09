@@ -199,6 +199,7 @@ describe("webhooks and dispute defence", () => {
 
   it("opens a dispute from a signed webhook, drafts evidence, dedupes repeats", async () => {
     const m = await releasedWithDisputeCard();
+    rail.openDisputeFor(m.transactionId!);
     const s = await rail.sampleWebhook("dispute_opened", m.transactionId!);
     const r1 = await handleWebhook(db, rail, s.signature, s.payload);
     expect(r1.outcome).toMatch(/dispute .* open/);

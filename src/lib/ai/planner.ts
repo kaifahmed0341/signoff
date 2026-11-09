@@ -2,7 +2,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { MilestoneDraft } from "../services/milestones";
 import { findQuote, normalizeText } from "./evidence";
-import { resolveModel } from "./model";
+import { providerOptions, resolveModel } from "./model";
 
 /**
  * Scope of work in, milestones out. Every acceptance criterion carries the
@@ -53,6 +53,8 @@ export async function planFromScope(scope: string): Promise<PlannedProject> {
     ? (
         await generateText({
           model: resolved.model,
+          providerOptions,
+          abortSignal: AbortSignal.timeout(120_000),
           system: SYSTEM,
           output: Output.object({ schema: planSchema }),
           prompt: `Scope of work:\n<scope>\n${scope}\n</scope>`,

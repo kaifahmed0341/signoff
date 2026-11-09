@@ -8,7 +8,7 @@ import { audit } from "../services/audit";
 import { newId } from "../services/ids";
 import { applyEvent, getMilestone, getProject, milestoneCriteria, latestCheck } from "../services/milestones";
 import { enforceEvidenceRule, normalizeText, verifyEvidence, type CorpusEntry, type RawEvidence, type VerdictValue } from "./evidence";
-import { resolveModel } from "./model";
+import { providerOptions, resolveModel } from "./model";
 import { checkerTools, gatherBaseline, type ToolContext } from "./tools";
 
 /**
@@ -94,6 +94,8 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
     if (resolved.model) {
       await generateText({
         model: resolved.model,
+        providerOptions,
+        abortSignal: AbortSignal.timeout(120_000),
         system: EXPLORE_SYSTEM,
         tools: checkerTools(ctx),
         stopWhen: isStepCount(6),
@@ -101,6 +103,8 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
       });
       const judged = await generateText({
         model: resolved.model,
+        providerOptions,
+        abortSignal: AbortSignal.timeout(120_000),
         system: JUDGE_SYSTEM,
         output: Output.object({ schema: verdictSchema }),
         prompt: `Criteria (answer for every id):\n${criteriaBlock(crit)}\n\nDocuments:\n${documentsBlock(corpusFrom(ctx))}`,
@@ -217,6 +221,8 @@ export async function draftChangeNote(db: DB, milestoneId: string): Promise<stri
   }
   const r = await generateText({
     model: resolved.model,
+    providerOptions,
+    abortSignal: AbortSignal.timeout(120_000),
     system: "Write a short, polite change request from a client to a freelancer. Plain words, no greeting fluff, a bulleted list of what to fix, based only on the findings given. No em dashes.",
     prompt: `Findings:\n${facts}`,
   });

@@ -30,3 +30,9 @@ export function resolveModel(): ResolvedModel {
 export function setModelForTests(m: ResolvedModel | undefined) {
   g.__signoffModelOverride = m;
 }
+
+/** Shared call options. Low thinking keeps a check under a minute on Gemini. */
+export const providerOptions = {
+  google: { thinkingConfig: { thinkingLevel: "low" as const } },
+  anthropic: {},
+};

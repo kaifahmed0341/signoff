@@ -26,7 +26,7 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
-  GOOGLE_MODEL: z.string().default("gemini-2.5-flash"),
+  GOOGLE_MODEL: z.string().default("gemini-3.5-flash"),
   GITHUB_TOKEN: z.string().optional(),
 });
 
