@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
+import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getRail } from "@/lib/payments";
@@ -29,7 +30,8 @@ import {
 } from "@/lib/services/milestones";
 import { LOGIN_FAILURES_PER_DAY, consume, loginFailures, noteLoginFailure } from "@/lib/services/usage";
 import { createAgentToken, revokeAgentToken } from "@/lib/services/mcp-tokens";
-import { createDemoWorkspace, ensureOwnerWorkspace } from "@/lib/services/workspaces";
+import { WorkspaceLimitError, createDemoWorkspace, ensureOwnerWorkspace } from "@/lib/services/workspaces";
+import { hashAddress } from "@/lib/services/ids";
 import { currentWorkspace, endSession, passcodeLoginEnabled, passcodeMatches, requireWorkspace, startSession } from "@/lib/web/auth";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -41,10 +43,16 @@ function fail(err: unknown): { ok: false; error: string } {
 
 // ---------------------------------------------------------------- sessions
 
+/** The visitor's address as the host reports it (Vercel sets x-forwarded-for). Used only hashed or for counting. */
+async function clientAddress(): Promise<string> {
+  const h = await headers();
+  return (h.get("x-forwarded-for") ?? h.get("x-real-ip") ?? "local").split(",")[0].trim().slice(0, 64);
+}
+
 export async function login(_prev: { error?: string } | undefined, form: FormData) {
   if (!passcodeLoginEnabled()) return { error: "Passcode sign-in is off on this demo server. Use Try the live demo." };
   const db = await getDb();
-  const ip = ((await headers()).get("x-forwarded-for") ?? "local").split(",")[0].trim().slice(0, 64);
+  const ip = await clientAddress();
   if ((await loginFailures(db, ip)) >= LOGIN_FAILURES_PER_DAY) return { error: "Too many wrong passcodes from this address today. Try again tomorrow." };
   const code = String(form.get("passcode") ?? "").slice(0, 200);
   if (!passcodeMatches(code)) {
@@ -62,7 +70,13 @@ export async function startDemo() {
   const existing = await currentWorkspace();
   if (!existing) {
     const db = await getDb();
-    const w = await createDemoWorkspace(db);
+    let w;
+    try {
+      w = await createDemoWorkspace(db, Date.now(), hashAddress(await clientAddress()));
+    } catch (err) {
+      if (err instanceof WorkspaceLimitError) redirect("/?limit=workspaces");
+      throw err;
+    }
     await startSession(w.id);
     await createSampleProject(db, w.id);
   }
@@ -100,6 +114,22 @@ export async function draftPlan(scope: string): Promise<ActionResult<PlannedProj
   }
 }
 
+const draftSchema = z
+  .array(
+    z.object({
+      title: z.string().trim().min(1).max(120),
+      deliverable: z.string().max(600),
+      amountCents: z.number().int().positive().max(100_000_000),
+      dueDate: z.string().max(10).nullable().optional(),
+      criteria: z
+        .array(z.object({ text: z.string().trim().min(1).max(400), sourceQuote: z.string().max(1000), quoteVerified: z.boolean() }))
+        .min(1)
+        .max(10),
+    }),
+  )
+  .min(1)
+  .max(8);
+
 export async function saveProject(input: {
   name: string;
   clientName: string;
@@ -112,8 +142,11 @@ export async function saveProject(input: {
   try {
     const db = await getDb();
     if (!input.name.trim() || !input.clientName.trim()) throw new ServiceError("Name the project and the client");
-    if (input.milestones.length === 0) throw new ServiceError("Draft or add at least one milestone");
-    if (input.milestones.length > 8) throw new ServiceError("Keep it to eight milestones or fewer");
+    const parsed = draftSchema.safeParse(input.milestones);
+    if (!parsed.success) {
+      const i = parsed.error.issues[0];
+      throw new ServiceError(`Check the milestones: ${i?.path.join(" ")} ${i?.message ?? ""}`.trim());
+    }
     const p = await createProject(db, {
       workspaceId: w.id,
       name: input.name.trim().slice(0, 120),
@@ -121,7 +154,7 @@ export async function saveProject(input: {
       clientEmail: input.clientEmail?.trim().slice(0, 200) || null,
       scope: input.scope.slice(0, 30_000),
       currency: env().CURRENCY,
-      milestones: input.milestones,
+      milestones: parsed.data,
     });
     if (input.send) await sendProject(db, p.id);
     return { ok: true, data: { id: p.id } };

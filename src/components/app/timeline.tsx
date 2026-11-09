@@ -3,7 +3,7 @@
 import type { ColDef, ICellRendererParams } from "ag-grid-community";
 import { DataGrid } from "./data-grid";
 
-export type TimelineRow = { at: string; actor: string; milestone: string; type: string; message: string; refs: string };
+export type TimelineRow = { iso: string; at: string; actor: string; milestone: string; type: string; message: string; refs: string };
 
 const ACTOR: Record<string, string> = {
   client: "bg-indigo-100 text-indigo-900",
@@ -32,7 +32,8 @@ function Refs(p: ICellRendererParams<TimelineRow>) {
 
 export function Timeline({ rows }: { rows: TimelineRow[] }) {
   const columns: ColDef<TimelineRow>[] = [
-    { field: "at", headerName: "When (UTC)", width: 160, minWidth: 150, flex: 0, sort: "desc", cellClass: "text-xs" },
+    // Sorted by the ISO timestamp, shown formatted: text dates do not sort.
+    { field: "iso", headerName: "When (UTC)", width: 160, minWidth: 150, flex: 0, sort: "desc", cellClass: "text-xs", valueFormatter: (p) => p.data?.at ?? "", filter: false },
     {
       field: "actor",
       headerName: "Who",

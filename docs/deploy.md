@@ -29,7 +29,7 @@ Public demo: https://signoff-iota.vercel.app (health: https://signoff-iota.verce
 | `BRAINTREE_MERCHANT_ACCOUNT_ID` | no | A specific merchant account, for a non-default currency. |
 | `CURRENCY` | no | Default `USD`. Match the Braintree merchant account. |
 | `DEMO_VIDEO_URL` | no | Shows a "Watch the demo" button on the front page. |
-| `LIMIT_*` | no | Daily caps; see `.env.example`. Defaults: 15 AI checks and 150 page reads per demo workspace, 400 checks and 5,000 reads for the whole server. |
+| `LIMIT_*` | no | Daily caps. Defaults: per demo workspace 15 AI checks, 10 AI drafts, 10 AI change notes, 150 page reads; per visitor address 40 AI checks and 8 new workspaces; for the whole server 400 checks, 300 drafts, 150 notes, 5,000 reads. The last fifth of the day's checks is kept for first-time visitors. Keep the global check cap under your model provider's daily quota. |
 | `GITHUB_TOKEN` | no | Raises GitHub rate limits. Use a token with no scopes; it is only sent for repositories already confirmed public. |
 
 ## Steps with the Vercel CLI

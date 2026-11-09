@@ -61,6 +61,17 @@ export const EVAL_CASES: EvalCase[] = [
     ],
   },
   {
+    id: "landing-hidden-tricks",
+    title: "Landing page, first draft with the missing facts in alt text, a closed details, a canvas, transparent and tiny text, a closed dialog and an aria-label",
+    links: (o) => [`${o}/samples/eval/hidden-tricks/index.html`],
+    criteria: [
+      { text: "The page headline names the studio: Larkspur Pottery Studio.", expected: "met" },
+      { text: "The page lists the Saturday wheel-throwing class with its start time of 10:00.", expected: "not_met" },
+      { text: "The page shows the studio address: 14 Kiln Lane, Portland.", expected: "not_met" },
+      { text: "Visitors can join the waitlist through an email signup form.", expected: "met" },
+    ],
+  },
+  {
     id: "landing-v2",
     title: "Landing page, second version",
     links: (o) => [`${o}/samples/larkspur-v2/index.html`],

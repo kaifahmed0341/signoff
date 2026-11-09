@@ -113,3 +113,49 @@ test("an operator drafts milestones from a pasted scope, edits them and creates 
   await expect(page.getByRole("heading", { name: "Pottery site from the e2e test" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Client link" })).toBeVisible();
 });
+
+test("a coding agent works the freelancer's side over MCP, until its token is revoked", async ({ page, context, baseURL }) => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try the live demo" }).click();
+  await page.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
+  const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
+  const client = await context.newPage();
+  await client.goto(shareUrl);
+  await client.getByRole("button", { name: "Card (test nonce)" }).first().click();
+  await expect(client.getByText("Your money is held.").first()).toBeVisible();
+
+  await page.reload();
+  await page.getByText("Agent access").click();
+  await page.getByRole("button", { name: "Create token" }).click();
+  const token = await page.getByRole("textbox", { name: "New agent token" }).inputValue();
+  expect(token).toMatch(/^so_agent_/);
+
+  const connect = async () => {
+    const c = new Client({ name: "e2e-agent", version: "1.0.0" });
+    await c.connect(new StreamableHTTPClientTransport(new URL(`${baseURL}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+    return c;
+  };
+  const agent = await connect();
+  const list = (await agent.callTool({ name: "list_milestones", arguments: {} })).structuredContent as { milestones: { id: string; can_submit: boolean }[] };
+  const target = list.milestones.find((m) => m.can_submit)!;
+  const sub = await agent.callTool({ name: "submit_delivery", arguments: { milestone_id: target.id, links: [`${baseURL}/samples/larkspur-v2/index.html`], notes: "Submitted by the agent" } });
+  expect(sub.isError).toBeFalsy();
+  let status = "running";
+  let report: { check: { status: string; criteria?: { verdict: string }[] } } | null = null;
+  for (let i = 0; i < 40 && status !== "done"; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    report = (await agent.callTool({ name: "read_evidence_report", arguments: { milestone_id: target.id } })).structuredContent as typeof report;
+    status = report!.check.status;
+  }
+  expect(status).toBe("done");
+  expect(report!.check.criteria!.filter((c) => c.verdict === "met").length).toBeGreaterThanOrEqual(3);
+  await agent.close();
+
+  await page.reload();
+  await expect(page.getByText("Delivery submitted by the coding agent").first()).toBeVisible();
+  await page.getByRole("button", { name: "Revoke" }).click();
+  await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
+  await expect(connect()).rejects.toThrow();
+});

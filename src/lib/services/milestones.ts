@@ -164,6 +164,8 @@ export async function replaceMilestones(db: DB, projectId: string, drafts: Miles
   for (const [i, d] of drafts.entries()) {
     if (!Number.isInteger(d.amountCents) || d.amountCents <= 0) throw new ServiceError(`Milestone ${i + 1} needs an amount above zero`);
     if (d.criteria.length === 0) throw new ServiceError(`Milestone ${i + 1} needs at least one acceptance criterion`);
+    if (d.criteria.length > 10) throw new ServiceError(`Milestone ${i + 1} has more than 10 acceptance criteria`);
+    if (d.criteria.some((c) => c.text.length > 400)) throw new ServiceError(`Keep each acceptance criterion in milestone ${i + 1} under 400 characters`);
     const id = newId("ms");
     await db.insert(milestones).values({
       id,
@@ -288,7 +290,7 @@ async function revert(db: DB, m: Milestone, clear: Partial<Milestone> = {}) {
   const to = revertClaim(m.state as MilestoneState, m.claimedFrom);
   await db
     .update(milestones)
-    .set({ ...clear, state: to, claimedFrom: null, updatedAt: new Date() })
+    .set({ ...clear, state: to, claimedFrom: null, claimedAt: null, updatedAt: new Date() })
     .where(and(eq(milestones.id, m.id), eq(milestones.state, m.state)));
 }
 
@@ -324,6 +326,7 @@ export async function acceptAndRelease(
   const { json, signature } = signRecord(record);
   const claimed = await applyEvent(db, m, "CLAIM_RELEASE", {
     claimedFrom: m.state,
+    claimedAt: new Date(),
     acceptedBy: signer,
     acceptedAt: at,
     acceptanceRecord: json,
@@ -346,13 +349,28 @@ export async function acceptAndRelease(
     hold = now;
   }
   const receiptNumber = `SO-${at.getUTCFullYear()}-${m.id.slice(-6).toUpperCase()}`;
-  const next = await applyEvent(db, claimed, "CAPTURE", {
+  const releasedPatch: Partial<Milestone> = {
     claimedFrom: null,
+    claimedAt: null,
     transactionStatus: hold.status,
     settledCents: hold.amountCents,
     releasedAt: at,
     receiptNumber,
-  });
+  };
+  let next: Milestone;
+  try {
+    next = await applyEvent(db, claimed, "CAPTURE", releasedPatch);
+  } catch (err) {
+    // Braintree took the release, so the money moved. Whatever touched the claim
+    // meanwhile, finish the release with this sign-off's record rather than lose it.
+    if (!(err instanceof ServiceError) || err.status !== 409) throw err;
+    await db
+      .update(milestones)
+      .set({ ...releasedPatch, state: "released", acceptedBy: signer, acceptedAt: at, acceptanceRecord: json, acceptanceSignature: signature, updatedAt: new Date() })
+      .where(and(eq(milestones.id, m.id), inArray(milestones.state, ["releasing", "in_review"])));
+    next = await getMilestone(db, m.id);
+    if (next.state !== "released") throw err;
+  }
   const partial = amount < m.heldCents;
   await audit(db, {
     projectId: m.projectId,
@@ -384,7 +402,7 @@ export async function declineMilestone(db: DB, rail: PaymentRail, milestoneId: s
   const m = await getMilestone(db, milestoneId);
   if (!canTransition(m.state as MilestoneState, "CLAIM_VOID")) throw new ServiceError(`A ${m.state.replace(/_/g, " ")} milestone cannot be declined`, 409);
   if (!m.transactionId) throw new ServiceError("No hold to release", 409);
-  const claimed = await applyEvent(db, m, "CLAIM_VOID", { claimedFrom: m.state });
+  const claimed = await applyEvent(db, m, "CLAIM_VOID", { claimedFrom: m.state, claimedAt: new Date() });
   let hold: Hold;
   try {
     const before = await rail.getHold(m.transactionId);
@@ -402,12 +420,15 @@ export async function declineMilestone(db: DB, rail: PaymentRail, milestoneId: s
     }
     hold = now;
   }
-  const next = await applyEvent(db, claimed, "VOID", { claimedFrom: null, transactionStatus: hold.status, changeNote: reason.slice(0, 2000) || m.changeNote });
+  const next = await applyEvent(db, claimed, "VOID", { claimedFrom: null, claimedAt: null, transactionStatus: hold.status, changeNote: reason.slice(0, 2000) || m.changeNote });
   await audit(db, { projectId: m.projectId, milestoneId: m.id, actor, type: "hold.voided", message: `Declined. The hold of ${money(m.heldCents, hold.currency)} was voided and nothing was charged.`, data: { transactionId: hold.transactionId, status: hold.status, reason } });
   return next;
 }
 
 // ---------------------------------------------------------------- reconcile
+
+/** A claim younger than this belongs to a request that may still be talking to Braintree. */
+export const CLAIM_GRACE_MS = 2 * 60 * 1000;
 
 export type ReconcileResult = { milestoneId: string; local: string; remote: string | null; action: string };
 
@@ -427,9 +448,12 @@ export async function reconcileMilestone(db: DB, rail: PaymentRail, milestoneId:
   let action = "in sync";
   let attention: string | null = null;
 
-  if (state === "releasing") {
+  const claimAge = m.claimedAt ? Date.now() - m.claimedAt.getTime() : Number.POSITIVE_INFINITY;
+  if ((state === "releasing" || state === "voiding") && claimAge < CLAIM_GRACE_MS) {
+    action = `a ${state === "releasing" ? "sign-off" : "decline"} is in progress; left alone`;
+  } else if (state === "releasing") {
     if (remote === "released") {
-      m = await applyEvent(db, m, "CAPTURE", { claimedFrom: null, transactionStatus: hold.status, settledCents: hold.amountCents, releasedAt: m.acceptedAt ?? new Date(), receiptNumber: m.receiptNumber ?? `SO-${new Date().getUTCFullYear()}-${m.id.slice(-6).toUpperCase()}` });
+      m = await applyEvent(db, m, "CAPTURE", { claimedFrom: null, claimedAt: null, transactionStatus: hold.status, settledCents: hold.amountCents, releasedAt: m.acceptedAt ?? new Date(), receiptNumber: m.receiptNumber ?? `SO-${new Date().getUTCFullYear()}-${m.id.slice(-6).toUpperCase()}` });
       action = "finished an interrupted release";
     } else if (remote === "held") {
       await revert(db, m, CLEAR_ACCEPTANCE);
@@ -437,7 +461,7 @@ export async function reconcileMilestone(db: DB, rail: PaymentRail, milestoneId:
     } else attention = `A sign-off was in progress but Braintree reports the transaction as ${hold.status}.`;
   } else if (state === "voiding") {
     if (remote === "voided") {
-      m = await applyEvent(db, m, "VOID", { claimedFrom: null, transactionStatus: hold.status });
+      m = await applyEvent(db, m, "VOID", { claimedFrom: null, claimedAt: null, transactionStatus: hold.status });
       action = "finished an interrupted decline";
     } else if (remote === "held") {
       await revert(db, m);

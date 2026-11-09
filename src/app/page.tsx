@@ -31,8 +31,9 @@ const steps = [
   },
 ];
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<{ limit?: string }> }) {
   const e = env();
+  const { limit } = await searchParams;
   const workspace = await currentWorkspace();
   const primary = workspace ? (
     <Link href="/dashboard" className={buttonVariants({ size: "lg", className: "h-11 px-5 text-base" })}>
@@ -77,8 +78,13 @@ export default async function Home() {
                 </a>
               )}
             </div>
-            {e.DEMO_MODE && !workspace && (
+            {e.DEMO_MODE && !workspace && limit !== "workspaces" && (
               <p className="mt-3 text-sm text-muted-foreground">No sign-up. You get a private demo workspace with a sample project. Sandbox money only.</p>
+            )}
+            {limit === "workspaces" && !workspace && (
+              <p className="mt-3 text-sm text-amber-800 dark:text-amber-300" role="status">
+                This network has started {e.LIMIT_WORKSPACES_PER_ADDRESS} demo workspaces today. Open the demo in the browser you used before, or try again tomorrow.
+              </p>
             )}
           </div>
           <HeroCard />
@@ -126,7 +132,7 @@ export default async function Home() {
           </div>
           <div className="rounded-xl border bg-card p-6">
             <div className="flex items-center gap-2 font-medium"><Quote className="size-5 text-primary" /> Every quote is checked in code</div>
-            <p className="mt-2 text-sm text-muted-foreground">Evidence must appear word for word in what the checker read. Invented quotes are removed, and delivered pages are treated as data, never as instructions.</p>
+            <p className="mt-2 text-sm text-muted-foreground">A quote must appear word for word in what visitors can see, and must contain the names and numbers the criterion asks for. Invented, hidden or off-point quotes are removed, and delivered pages are treated as data, never as instructions.</p>
           </div>
         </section>
         <section className="mx-auto max-w-6xl px-4 pb-16">

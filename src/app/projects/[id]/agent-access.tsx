@@ -16,10 +16,9 @@ export function AgentAccess({ projectId, endpoint, tokens }: { projectId: string
   const [label, setLabel] = useState("Coding agent");
   const [fresh, setFresh] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const active = tokens.filter((t) => !t.revokedAt);
   const config = fresh ? `claude mcp add --transport http signoff ${endpoint} --header "Authorization: Bearer ${fresh}"` : "";
   return (
-    <details className="rounded-xl border bg-card p-4 sm:p-5 group" open={active.length > 0 || undefined}>
+    <details className="rounded-xl border bg-card p-4 sm:p-5 group" open={tokens.length > 0 || undefined}>
       <summary className="cursor-pointer list-none flex items-center gap-2 font-medium">
         <Bot className="size-5 text-primary" /> Agent access <span className="text-sm font-normal text-muted-foreground">Let your coding agent submit deliveries and read reports over MCP</span>
       </summary>

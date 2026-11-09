@@ -43,6 +43,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const rail = railMode();
   const anyChecking = milestones.some((m) => m.state === "checking");
   const rows: TimelineRow[] = events.map((e) => ({
+    iso: e.createdAt.toISOString(),
     at: when(e.createdAt).replace(" UTC", ""),
     actor: e.actor,
     milestone: milestones.find((m) => m.id === e.milestoneId)?.title ?? "",

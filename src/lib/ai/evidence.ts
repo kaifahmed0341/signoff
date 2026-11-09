@@ -6,6 +6,8 @@
  * - it appears word for word in text a visitor can see on a delivered page,
  *   in a delivered file, or in the repository. Hidden page text never counts.
  * - it shares at least one key word with the criterion.
+ * And a "met" needs its quotes, together, to contain the specific numbers and
+ * names the criterion states (a time, a price, an address).
  * Removed quotes are kept with the reason, and the report shows them.
  * Text from the freelancer's own notes is a claim, not proof: it is shown,
  * but a "met" that rests only on notes goes to a person.
@@ -112,14 +114,59 @@ export function verifyEvidence(items: RawEvidence[], corpus: CorpusEntry[], req?
 export type VerdictValue = "met" | "not_met" | "needs_person";
 
 /**
+ * True when a criterion is about a live page, site or app rather than a
+ * document. A file the freelancer uploads can prove what a document says; it
+ * cannot prove what a live page shows. That needs a link to the page.
+ */
+export function aboutPage(criterion: string): boolean {
+  return /\b(page|pages|site|website|web site|homepage|landing|screen|app|button|form|visitors?|browser|menu|navigation|header|footer|mobile)\b/i.test(criterion);
+}
+
+/**
  * Apply the evidence rule to one verdict: a "met" needs at least one surviving
  * quote from the delivery itself. Quotes from the freelancer's notes alone
  * send it to a person.
  */
-export function enforceEvidenceRule(verdict: VerdictValue, kept: VerifiedEvidence[], dropped: DroppedEvidence[] | number): { verdict: VerdictValue; note: string | null } {
+const COMMON_CAPS = new Set(["The", "A", "An", "Visitors", "Visitor", "Users", "User", "Each", "Every", "All", "It", "This", "That", "Page", "Site", "Our", "Your"]);
+
+/**
+ * The specific values a criterion names: numbers, times and prices, and
+ * capitalised names that are not the first word. A "met" must show them.
+ */
+export function specifics(criterion: string): string[] {
+  const out = new Set<string>();
+  for (const m of criterion.matchAll(/\d+(?:[:.,]\d+)*/g)) out.add(m[0]);
+  const words = criterion.replace(/[^\p{L}\p{N}\s'-]/gu, " ").split(/\s+/).filter(Boolean);
+  words.forEach((w, i) => {
+    if (i > 0 && /^\p{Lu}[\p{L}'-]+$/u.test(w) && !COMMON_CAPS.has(w)) out.add(w);
+  });
+  return [...out];
+}
+
+/** Specific values the criterion names that none of the quotes contain. */
+export function missingSpecifics(criterion: string, quotes: string[]): string[] {
+  const hay = normalizeText(quotes.join(" ")).toLowerCase();
+  return specifics(criterion).filter((v) => !hay.includes(v.toLowerCase()));
+}
+
+export function enforceEvidenceRule(
+  verdict: VerdictValue,
+  kept: VerifiedEvidence[],
+  dropped: DroppedEvidence[] | number,
+  opts: { pageCriterion?: boolean; criterion?: string } = {},
+): { verdict: VerdictValue; note: string | null } {
   const droppedCount = typeof dropped === "number" ? dropped : dropped.length;
-  const proof = kept.filter((k) => k.kind !== "notes_file");
+  const proof = kept.filter((k) => k.kind !== "notes_file" && !(opts.pageCriterion && k.kind === "deliverable_file"));
+  if (verdict === "met" && proof.length > 0 && opts.criterion) {
+    const missing = missingSpecifics(opts.criterion, proof.map((k) => k.quote));
+    if (missing.length) {
+      return { verdict: "needs_person", note: `The quotes do not show ${missing.map((m) => `"${m}"`).join(", ")}, which the criterion names, so a person should look.` };
+    }
+  }
   if (verdict === "met" && proof.length === 0) {
+    if (kept.some((k) => k.kind === "deliverable_file") && opts.pageCriterion) {
+      return { verdict: "needs_person", note: "This is about a live page, and only an uploaded file supports it. A file is the freelancer's own copy; a person should check the live page." };
+    }
     if (kept.length > 0) {
       return { verdict: "needs_person", note: "Only the freelancer's own notes support this. Notes are a claim, not proof, so a person should look." };
     }

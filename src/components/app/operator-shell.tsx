@@ -36,7 +36,7 @@ export async function OperatorShell({ children }: { children: React.ReactNode })
               {rail === "fake" ? "Payments: test rail" : `Payments: Braintree ${rail}`}
             </Badge>
             <Badge variant="outline" className="hidden md:inline-flex" title="Checker model">
-              {model === "scripted" ? "Checker: scripted, no AI key" : `Checker: ${model.replace(/^google\//, "")}`}
+              {model === "scripted" ? "Checker: scripted, no AI key" : model.startsWith("google/") ? "Checker: Gemini" : model.startsWith("anthropic/") ? "Checker: Claude" : `Checker: ${model}`}
             </Badge>
             {!demo && (
               <form action={logout}>

@@ -7,6 +7,8 @@ const now = sql`(unixepoch() * 1000)`;
 export const workspaces = sqliteTable("workspaces", {
   id: text("id").primaryKey(),
   kind: text("kind").notNull(), // owner | demo
+  /** Keyed hash of the address that created a demo workspace, for per-address limits. Never the address itself. */
+  ipHash: text("ip_hash"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
   lastSeenAt: integer("last_seen_at", { mode: "timestamp_ms" }).notNull().default(now),
 });
@@ -98,6 +100,8 @@ export const milestones = sqliteTable(
     fundingAttempt: integer("funding_attempt").notNull().default(0),
     /** The state a releasing or voiding claim was taken from, to return to if the Braintree call fails. */
     claimedFrom: text("claimed_from"),
+    /** When the current releasing or voiding claim was taken; reconcile leaves young claims alone. */
+    claimedAt: integer("claimed_at", { mode: "timestamp_ms" }),
     /** Set by reconcile when the app and Braintree disagree in a way only a person can resolve. */
     attention: text("attention"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),
@@ -159,11 +163,13 @@ export const checks = sqliteTable("checks", {
   fallbackReason: text("fallback_reason"),
   /** Tampering found while reading: hidden text and instructions aimed at the checker. */
   findings: text("findings", { mode: "json" }).$type<CheckFinding[]>(),
+  /** The AI-drafted change request for this report, cached so the button costs one model call per report. */
+  changeNoteDraft: text("change_note_draft"),
   startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull().default(now),
   finishedAt: integer("finished_at", { mode: "timestamp_ms" }),
 });
 
-export type CheckFinding = { kind: "hidden_text" | "injected_instruction"; source: string; excerpt: string; how?: string };
+export type CheckFinding = { kind: "hidden_text" | "injected_instruction" | "pasted_requirement"; source: string; excerpt: string; how?: string };
 
 export type CheckProgress = {
   phase: "reading" | "exploring" | "judging" | "saving";

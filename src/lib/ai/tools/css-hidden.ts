@@ -4,7 +4,8 @@
  * selectors against an element's ancestry, and recognises the common ways of
  * hiding text:
  *
- *   display:none, visibility:hidden or collapse, opacity:0, font-size:0,
+ *   display:none, visibility:hidden or collapse, opacity under 0.05,
+ *   font-size under 4px, transparent text colour, scale(0),
  *   clip:rect(0...) or clip-path:inset(50%+), a 0 or 1 pixel box with
  *   overflow hidden, off-screen positioning (position absolute or fixed with
  *   left, top, right or a translate of -500px or more), text-indent of -500px
@@ -28,8 +29,20 @@ const MAX_CSS_CHARS = 400_000;
 
 // ------------------------------------------------------------------ parsing
 
-function parseDecls(body: string): Decls {
+/** Removes CSS comments and resolves CSS escapes, so an escaped or commented-out "display:none" still reads as display:none. */
+export function cleanCss(css: string): string {
+  return css
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\\([0-9a-fA-F]{1,6})\s?/g, (_m, hex: string) => {
+      const code = parseInt(hex, 16);
+      return code > 0 && code < 0x110000 ? String.fromCodePoint(code) : "";
+    })
+    .replace(/\\(.)/g, "$1");
+}
+
+function parseDecls(raw: string): Decls {
   const out: Decls = {};
+  const body = cleanCss(raw);
   for (const part of body.split(";")) {
     const i = part.indexOf(":");
     if (i < 0) continue;
@@ -85,7 +98,7 @@ function specificityOf(sel: Selector): number {
 export function parseCss(css: string, startOrder = 0): CssRule[] {
   const rules: CssRule[] = [];
   let order = startOrder;
-  const text = css.slice(0, MAX_CSS_CHARS).replace(/\/\*[\s\S]*?\*\//g, " ");
+  const text = cleanCss(css.slice(0, MAX_CSS_CHARS));
   const walk = (src: string) => {
     let i = 0;
     while (i < src.length) {
@@ -179,8 +192,12 @@ const OFFSCREEN = -500;
 export function hidingReason(d: Decls): string | null {
   if (d.display === "none") return "display none";
   if (d.visibility === "hidden" || d.visibility === "collapse") return "visibility hidden";
-  if (d.opacity !== undefined && Number(d.opacity) === 0) return "zero opacity";
-  if (d["font-size"] !== undefined && px(d["font-size"]) === 0) return "zero font size";
+  if (d.opacity !== undefined && Number.parseFloat(d.opacity) < 0.05) return d.opacity.match(/^0*\.?0*%?$/) ? "zero opacity" : "nearly transparent";
+  const fs = px(d["font-size"]);
+  if (fs !== null && fs === 0) return "zero font size";
+  if (fs !== null && fs < 4) return "tiny text";
+  if (d.color && /^(transparent|rgba\([^)]*,\s*0(\.0+)?\s*\)|#[0-9a-f]{6}00|#[0-9a-f]{3}0)$/.test(d.color.trim())) return "transparent text";
+  if (d.transform && /scale[xy]?\(\s*0(\.0+)?\s*[,)]/.test(d.transform)) return "scaled to nothing";
   if (d.clip && /rect\(\s*0(px)?[\s,]+0(px)?[\s,]+0(px)?[\s,]+0(px)?\s*\)/.test(d.clip)) return "clipped";
   if (d["clip-path"] && /inset\(\s*(50|[5-9]\d|100)%|circle\(\s*0/.test(d["clip-path"])) return "clipped";
   const w = px(d.width);

@@ -1,4 +1,5 @@
-import { and, eq, lt, inArray } from "drizzle-orm";
+import { and, count, eq, gte, lt, inArray } from "drizzle-orm";
+import { env } from "../env";
 import type { DB } from "../db";
 import { fakeTransactions, fakeDisputes, usageCounters, workspaces, type Workspace } from "../db/schema";
 import { newId } from "./ids";
@@ -19,10 +20,24 @@ export async function ensureOwnerWorkspace(db: DB): Promise<Workspace> {
   return (await getWorkspace(db, OWNER_WORKSPACE_ID))!;
 }
 
-export async function createDemoWorkspace(db: DB, now = Date.now()): Promise<Workspace> {
+export class WorkspaceLimitError extends Error {}
+
+/**
+ * A new private demo workspace. `ipHash` is a keyed hash of the visitor's
+ * address; one address can start at most LIMIT_WORKSPACES_PER_ADDRESS a day,
+ * so clearing cookies does not hand out fresh AI budgets.
+ */
+export async function createDemoWorkspace(db: DB, now = Date.now(), ipHash: string | null = null): Promise<Workspace> {
   await pruneDemoWorkspaces(db, now);
+  if (ipHash) {
+    const since = new Date(now - 24 * 60 * 60 * 1000);
+    const [row] = await db.select({ n: count() }).from(workspaces).where(and(eq(workspaces.ipHash, ipHash), gte(workspaces.createdAt, since)));
+    if ((row?.n ?? 0) >= env().LIMIT_WORKSPACES_PER_ADDRESS) {
+      throw new WorkspaceLimitError(`This network has started ${env().LIMIT_WORKSPACES_PER_ADDRESS} demo workspaces in the last day. Open the demo in the browser you used before, or try again tomorrow.`);
+    }
+  }
   const id = newId("ws");
-  await db.insert(workspaces).values({ id, kind: "demo", createdAt: new Date(now), lastSeenAt: new Date(now) });
+  await db.insert(workspaces).values({ id, kind: "demo", ipHash, createdAt: new Date(now), lastSeenAt: new Date(now) });
   return (await getWorkspace(db, id))!;
 }
 

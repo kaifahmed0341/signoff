@@ -72,7 +72,7 @@ export default async function Dashboard() {
 
       <div className="mt-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Stat label="Held for you now" value={money(held, currency)} hint="Authorized, not yet charged" />
-        <Stat label="Released to you" value={money(released, currency)} hint="Submitted for settlement" />
+        <Stat label="Released to you" value={money(released, currency)} hint="Submitted for settlement or settled" />
         <Stat label="Waiting on client sign-off" value={String(waiting)} hint="Evidence report ready" />
         <Stat label="Open disputes" value={String(openDisputes)} hint="Evidence pack drafted" />
       </div>

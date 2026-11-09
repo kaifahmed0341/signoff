@@ -43,3 +43,8 @@ export function verifyShareToken(projectId: string, linkSecret: string, token: s
 export function newLinkSecret(): string {
   return randomBytes(12).toString("base64url");
 }
+
+/** A keyed hash of a client address, so limits can count by address without storing it. */
+export function hashAddress(ip: string): string {
+  return sign("client-address", ip.trim().toLowerCase()).slice(0, 22);
+}

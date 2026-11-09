@@ -1,4 +1,4 @@
-import { Ban, CheckCircle2, Circle, EyeOff, FileText, GitBranch, Globe, Info, Loader2, Quote, ShieldAlert, X } from "lucide-react";
+import { Ban, CheckCircle2, Circle, Copy, EyeOff, FileText, GitBranch, Globe, Info, Loader2, Quote, ShieldAlert, X } from "lucide-react";
 import type { MilestoneView } from "@/lib/web/views";
 import { VerdictBadge } from "./state-badge";
 import { when } from "@/lib/web/format";
@@ -69,10 +69,10 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
           <ul className="mt-2 space-y-1.5 text-xs">
             {findings.map((f, i) => (
               <li key={i} className="flex gap-2">
-                {f.kind === "hidden_text" ? <EyeOff className="size-3.5 mt-0.5 shrink-0" /> : <ShieldAlert className="size-3.5 mt-0.5 shrink-0" />}
+                {f.kind === "hidden_text" ? <EyeOff className="size-3.5 mt-0.5 shrink-0" /> : f.kind === "pasted_requirement" ? <Copy className="size-3.5 mt-0.5 shrink-0" /> : <ShieldAlert className="size-3.5 mt-0.5 shrink-0" />}
                 <span className="min-w-0">
                   <span className="font-medium">
-                    {f.kind === "hidden_text" ? "Text hidden from visitors" : "Instruction aimed at the AI checker"}
+                    {f.kind === "hidden_text" ? "Text hidden from visitors" : f.kind === "pasted_requirement" ? "Requirement pasted onto the page" : "Instruction aimed at the AI checker"}
                     {f.how ? ` (${f.how})` : ""}:
                   </span>{" "}
                   <span className="break-words">&ldquo;{f.excerpt}&rdquo;</span>
@@ -80,7 +80,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-red-900/80 dark:text-red-200/80">Hidden text never counts as evidence, and the checker treats page content as data, not instructions.</p>
+          <p className="mt-2 text-xs text-red-900/80 dark:text-red-200/80">Hidden text and pasted requirements never count as evidence, and the checker treats page content as data, not instructions.</p>
         </div>
       )}
 
@@ -111,7 +111,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
                       </div>
                     </blockquote>
                   ))}
-                  {(v?.dropped ?? []).map((d, k) => (
+                  {(v?.dropped ?? []).filter((d) => v!.verdict !== "not_met" || !/^(too short|does not mention)/.test(d.reason)).map((d, k) => (
                     <div key={k} className="mt-2 rounded-md border border-dashed border-red-300 dark:border-red-900 px-3 py-2 text-sm flex gap-2">
                       <X className="size-3.5 mt-1 shrink-0 text-unmet" />
                       <div className="min-w-0">

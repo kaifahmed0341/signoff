@@ -133,7 +133,14 @@ export async function readFile(ctx: ToolContext, name: string): Promise<string> 
     if (!f) throw new Error(`No uploaded file named ${name}. Files: ${ctx.files.map((x) => x.name).join(", ") || "none"}`);
     const isDeliverable = f.role === "deliverable";
     const label = isDeliverable ? "Delivered file" : "Freelancer's notes. A claim about the work, not proof of it";
-    return { output: `[${label}: ${name}]\n${f.text}`, quotable: f.text, kind: isDeliverable ? "deliverable_file" : "notes_file" };
+    const kind = isDeliverable ? "deliverable_file" : "notes_file";
+    // Uploaded HTML goes through the same visible-text reader as a fetched page, so hidden text and comments never count.
+    if (/\.(x?html?|xht)$/i.test(name) || /html/i.test(f.mime) || /^\s*<(!doctype html|html|head|body|div|main|p|section)\b/i.test(f.text)) {
+      const { text, hidden, hiddenReasons } = htmlToText(f.text);
+      const note = hidden.length ? `\n[${hidden.length} block(s) of text in this file are hidden from visitors and were left out]` : "";
+      return { output: `[${label}: ${name}]\n${text}${note}`, quotable: text, hidden, hiddenReasons, kind };
+    }
+    return { output: `[${label}: ${name}]\n${f.text}`, quotable: f.text, kind };
   });
 }
 

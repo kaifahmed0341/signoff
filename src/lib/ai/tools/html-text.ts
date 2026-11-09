@@ -16,6 +16,9 @@ import { backgroundOf, computedDecls, hidingReason, normalizeColor, parseCss, ty
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", mdash: "-", ndash: "-", rsquo: "'", lsquo: "'", ldquo: '"', rdquo: '"', hellip: "...", copy: "(c)" };
 
+/** Elements whose content a browser does not show as page text. */
+const NEVER_SHOWN = new Set(["canvas", "video", "audio", "noembed", "noframes", "object", "map", "datalist", "select", "option"]);
+
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 const BLOCK_END = /^(p|div|section|article|header|footer|main|nav|li|h[1-6]|tr|form|ul|ol|table|label|dd|dt|blockquote|address|aside|figure|figcaption)$/;
 
@@ -48,13 +51,11 @@ function inlineNote(tag: string, name: string): string {
   if (name === "input") {
     const type = (attr(tag, "type") ?? "text").toLowerCase();
     if (type === "hidden") return " ";
-    const label = attr(tag, "placeholder") ?? attr(tag, "aria-label") ?? attr(tag, "name") ?? "";
+    // Only the placeholder shows on screen; an aria-label or name does not.
+    const label = attr(tag, "placeholder") ?? "";
     return ` [${type} field: ${label}] `;
   }
-  if (name === "img") {
-    const alt = attr(tag, "alt");
-    return alt ? ` [image: ${alt}] ` : " ";
-  }
+  if (name === "img") return " ";
   if (name === "br" || name === "hr") return "\n";
   return " ";
 }
@@ -137,6 +138,8 @@ export function htmlToText(html: string, opts: { extraCss?: string[] } = {}): Pa
   const titleMatch = s.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? tidy(titleMatch[1]).replace(/\n/g, " ") : null;
   s = s.replace(/<head\b[\s\S]*?<\/head\s*>/i, " ");
+  // A <title> is never page content, even when </head> is missing.
+  s = s.replace(/<title\b[^>]*>[\s\S]*?<\/title\s*>/gi, " ");
 
   // Walk tags, tracking each open element, what it inherits and whether it hides its content.
   type Open = { name: string; info: ElementInfo; hidden: string | null; color: string | null; bg: string | null };
@@ -146,7 +149,11 @@ export function htmlToText(html: string, opts: { extraCss?: string[] } = {}): Pa
   let visible = "";
   let hiddenBuf = "";
   let hiddenWhy = "";
-  const inHidden = () => stack.some((e) => e.hidden);
+  const inHidden = () => {
+    if (stack.some((e) => e.hidden)) return true;
+    const top = stack[stack.length - 1];
+    return !!top && top.name === "details" && !("open" in top.info.attrs);
+  };
   const emit = (text: string) => {
     if (inHidden()) hiddenBuf += text;
     else visible += text;
@@ -169,6 +176,10 @@ export function htmlToText(html: string, opts: { extraCss?: string[] } = {}): Pa
     const ownBg = backgroundOf(decls);
     const bg = ownBg && ownBg !== "transparent" ? ownBg : (parent?.bg ?? null);
     let hidden: string | null = "hidden" in attrs ? "hidden attribute" : hidingReason(decls);
+    if (!hidden && NEVER_SHOWN.has(name)) hidden = `inside a <${name}>, not shown as page text`;
+    if (!hidden && name === "dialog" && !("open" in attrs)) hidden = "closed dialog";
+    // A closed <details> shows only its <summary>.
+    if (!hidden && parent?.name === "details" && !("open" in parent.info.attrs) && name !== "summary") hidden = "inside a closed details element";
     if (!hidden && color && bg && color === bg) hidden = "text coloured like its background";
     return { info, hidden, color, bg };
   };
@@ -186,6 +197,16 @@ export function htmlToText(html: string, opts: { extraCss?: string[] } = {}): Pa
       if (VOID.has(name) || tag.endsWith("/>")) {
         const ev = evaluate(name, tag);
         if (!ev.hidden) emit(inlineNote(tag, name));
+        // Alt text is for screen readers and broken images; it is never visible page text.
+        if (name === "img" && ev.info.attrs.alt?.trim()) {
+          hiddenBlocks.push(tidy(ev.info.attrs.alt).replace(/\n/g, " "));
+          hiddenReasons.push("image alt text");
+        }
+        const label = ev.info.attrs["aria-label"]?.trim();
+        if (label && name === "input") {
+          hiddenBlocks.push(tidy(label).replace(/\n/g, " "));
+          hiddenReasons.push("form field label read only by screen readers");
+        }
         continue;
       }
       const wasHidden = inHidden();
@@ -194,6 +215,18 @@ export function htmlToText(html: string, opts: { extraCss?: string[] } = {}): Pa
       if (ev.hidden && !wasHidden) {
         hiddenBuf = "";
         hiddenWhy = ev.hidden;
+      }
+      // <textarea> holds raw text up to its own closing tag, whatever tags appear inside.
+      if (name === "textarea") {
+        const end = s.toLowerCase().indexOf("</textarea", re.lastIndex);
+        const stop = end === -1 ? s.length : end;
+        emit(` [text field: ${s.slice(re.lastIndex, stop)}] `);
+        stack.pop();
+        if (ev.hidden && !wasHidden) flushHidden();
+        const close = end === -1 ? s.length : s.indexOf(">", end) + 1 || s.length;
+        re.lastIndex = close;
+        last = close;
+        continue;
       }
       if (name === "button") emit(" [button: ");
       if (name === "a") {
