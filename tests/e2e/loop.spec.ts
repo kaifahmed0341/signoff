@@ -24,7 +24,7 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   await expect(client.getByText("Fund this milestone with a hold").first()).toBeVisible();
   await client.screenshot({ path: `${shots}/02-client-fund.png`, fullPage: true });
   await client.getByRole("button", { name: "PayPal account (test nonce)" }).first().click();
-  await expect(client.getByText("held, not charged").first()).toBeVisible();
+  await expect(client.getByText("Your money is held.").first()).toBeVisible();
 
   // The operator submits the cheat version. The report shows the tampering and the removed quotes.
   await page.reload();

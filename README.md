@@ -2,7 +2,7 @@
 
 Pay on acceptance for freelance and agency work. The client's money is held up front, an AI checker tests the delivery against the acceptance criteria both sides agreed and shows its evidence, and the money is released only when the client signs off.
 
-**Live demo:** https://signoff-demo.vercel.app (no sign-up: each visitor gets a private demo workspace with sandbox money)
+**Live demo:** https://signoff-iota.vercel.app (no sign-up: each visitor gets a private demo workspace with sandbox money)
 
 Built for the PayPal AI Hackathon. MIT licensed.
 
@@ -121,7 +121,7 @@ pnpm eval        # the evaluation set, with the model in your environment
 set -a; . ./.env.local; set +a
 LIVE_AI=1 pnpm vitest run tests/unit/live-ai.test.ts
 LIVE_BRAINTREE=1 pnpm vitest run tests/unit/live-braintree.test.ts
-E2E_BASE_URL=https://signoff-demo.vercel.app pnpm test:e2e
+E2E_BASE_URL=https://signoff-iota.vercel.app pnpm test:e2e
 ```
 
 ## Architecture

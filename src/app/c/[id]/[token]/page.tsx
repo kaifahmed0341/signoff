@@ -37,7 +37,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
       <header className="border-b bg-card">
         <div className="mx-auto max-w-3xl px-4 h-14 flex items-center">
           <Brand href="#" />
-          <span className="ml-auto text-xs text-muted-foreground">Payments by Braintree, a PayPal service{rail === "fake" ? " (test rail)" : rail === "sandbox" ? " (sandbox)" : ""}</span>
+          <span className="ml-auto max-w-[55%] text-right text-[11px] leading-tight sm:text-xs text-muted-foreground">Payments by Braintree, a PayPal service{rail === "fake" ? " (test rail)" : rail === "sandbox" ? " (sandbox)" : ""}</span>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-8 min-w-0">

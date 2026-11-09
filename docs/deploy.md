@@ -2,7 +2,7 @@
 
 Signoff runs on any Node host. These are the exact steps for Vercel with a hosted libSQL database (Turso), which is how the public demo runs.
 
-Public demo: see the README for the current URL.
+Public demo: https://signoff-iota.vercel.app (health: https://signoff-iota.vercel.app/api/health). It runs on Vercel with a Turso database in AWS US East, Gemini, and the test rail until Braintree sandbox keys are added.
 
 ## What the app needs from the host
 
