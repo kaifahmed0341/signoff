@@ -1,9 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
+  // Every page reads live database and PayPal state, so pages render per request.
+  serverExternalPackages: ["@libsql/client", "libsql", "unpdf"],
   turbopack: {
     rules: {
       "*.css": {
