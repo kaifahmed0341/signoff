@@ -95,3 +95,19 @@ test("each visitor sees only their own workspace", async ({ browser }) => {
   await b.goto(projectUrl);
   await expect(b.getByRole("heading", { name: "This page does not exist" })).toBeVisible();
 });
+
+test("an operator drafts milestones from a pasted scope, edits them and creates a client link", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try the live demo" }).click();
+  await expect(page.getByText("Demo workspace.")).toBeVisible();
+  await page.goto("/projects/new");
+  await page.getByRole("button", { name: "Use the sample scope" }).click();
+  await page.getByRole("button", { name: "Draft milestones" }).click();
+  await expect(page.getByText("Milestone 2")).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByText(/From the scope:/).first()).toBeVisible();
+  await page.screenshot({ path: `${process.env.E2E_SHOTS_DIR ?? "test-results/screens"}/10-new-project.png`, fullPage: true });
+  await page.getByRole("textbox", { name: "Project name" }).fill("Pottery site from the e2e test");
+  await page.getByRole("button", { name: "Save and create client link" }).click();
+  await expect(page.getByRole("heading", { name: "Pottery site from the e2e test" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Client link" })).toBeVisible();
+});

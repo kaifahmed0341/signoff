@@ -144,7 +144,7 @@ export async function githubRepo(ctx: ToolContext, repoUrl: string): Promise<str
   return record(ctx, "github_repo", { repoUrl }, repoUrl, async () => {
     const { owner, repo } = allowedRepo(ctx, repoUrl);
     const key = await confirmPublic(ctx, owner, repo);
-    const info = (await gh(ctx, `/repos/${owner}/${repo}`, key)) as { default_branch: string; description: string | null; private: boolean; license?: { spdx_id?: string } | null };
+    const info = (await gh(ctx, `/repos/${owner}/${repo}`, key)) as { default_branch: string; description: string | null; private: boolean; license?: { spdx_id?: string; name?: string } | null };
     const [commit] = (await gh(ctx, `/repos/${owner}/${repo}/commits?per_page=1`, key)) as { sha: string; commit: { message: string; author: { date: string } } }[];
     const tree = (await gh(ctx, `/repos/${owner}/${repo}/git/trees/${commit.sha}?recursive=1`, key)) as { tree: { path: string; type: string }[] };
     let ci = "No CI runs found for the latest commit.";
@@ -158,7 +158,7 @@ export async function githubRepo(ctx: ToolContext, repoUrl: string): Promise<str
     const text = [
       `Repository ${owner}/${repo} (default branch ${info.default_branch})`,
       `Description: ${info.description ?? "none"}`,
-      `License: ${info.license?.spdx_id ?? "none"}`,
+      info.license?.spdx_id ? `License: ${info.license.name ?? info.license.spdx_id} (SPDX id ${info.license.spdx_id})` : "License: no licence file detected",
       `Latest commit ${commit.sha.slice(0, 7)} on ${commit.commit.author.date}: ${commit.commit.message.split("\n")[0]}`,
       ci,
       `Files (${files.length}):`,

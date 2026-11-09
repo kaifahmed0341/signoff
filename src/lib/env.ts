@@ -26,9 +26,9 @@ const schema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-5-5"),
   GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional(),
-  GOOGLE_MODEL: z.string().default("gemini-3.5-flash"),
+  GOOGLE_MODEL: z.string().default("gemini-3.5-flash-lite"),
   /** Tried in order when the main Gemini model is rate-limited; each model has its own free-tier quota. */
-  GOOGLE_FALLBACK_MODELS: z.string().default("gemini-3.5-flash-lite,gemini-3.1-flash-lite"),
+  GOOGLE_FALLBACK_MODELS: z.string().default("gemini-3.5-flash,gemini-3.1-flash-lite"),
   GITHUB_TOKEN: z.string().optional(),
 
   // Public demo: each visitor gets a private workspace with one click.

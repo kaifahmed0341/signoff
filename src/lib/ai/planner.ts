@@ -2,7 +2,7 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { MilestoneDraft } from "../services/milestones";
 import { findQuote, normalizeText } from "./evidence";
-import { providerOptions, resolveModel } from "./model";
+import { providerOptions, resolveModel, withModelFallback } from "./model";
 
 /**
  * Scope of work in, milestones out. Every acceptance criterion carries the
@@ -63,16 +63,19 @@ export async function planFromScope(scope: string, allowAi: () => Promise<string
   let fallbackReason: string | undefined = resolved.model ? (await allowAi()) ?? undefined : "No AI key is configured on this server";
   if (resolved.model && !fallbackReason) {
     try {
-      const r = await generateText({
-        model: resolved.model,
-        providerOptions,
-        temperature: 0,
-        abortSignal: AbortSignal.timeout(120_000),
-        system: SYSTEM,
-        output: Output.object({ schema: planSchema }),
-        prompt: `Scope of work:\n<scope>\n${scope}\n</scope>`,
-      });
-      return finalizePlan(r.output, scope, resolved.label);
+      const r = await withModelFallback(resolved, (model) =>
+        generateText({
+          model,
+          providerOptions,
+          temperature: 0,
+          maxRetries: 0,
+          abortSignal: AbortSignal.timeout(120_000),
+          system: SYSTEM,
+          output: Output.object({ schema: planSchema }),
+          prompt: `Scope of work:\n<scope>\n${scope.replace(/<\/scope>/gi, "")}\n</scope>`,
+        }),
+      );
+      return finalizePlan(r.value.output, scope, r.label);
     } catch (err) {
       fallbackReason = `The AI model failed (${err instanceof Error ? err.message.split("\n")[0].slice(0, 100) : "unknown error"})`;
     }

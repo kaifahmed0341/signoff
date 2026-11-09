@@ -25,9 +25,15 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
 
   const draft = () =>
     startDraft(async () => {
-      const r = await draftPlan(scope);
+      let r: Awaited<ReturnType<typeof draftPlan>>;
+      try {
+        r = await draftPlan(scope);
+      } catch {
+        return void toast.error("Drafting failed. Check your connection and try again.");
+      }
       if (!r.ok) return void toast.error(r.error);
       const plan = r.data!;
+      if (plan.fallbackReason) toast.info(`${plan.fallbackReason}, so the scripted planner drafted these. It only understands scopes written as Milestone lines with bullets.`);
       setName((n) => n || plan.projectName);
       setMs(plan.milestones.map((m) => ({ title: m.title, deliverable: m.deliverable, amount: (m.amountCents / 100).toFixed(2), dueDate: m.dueDate ?? "", criteria: m.criteria })));
       if (plan.unverifiedQuotes) toast.warning(`${plan.unverifiedQuotes} criterion quote(s) were not found in the scope. They are flagged below.`);
@@ -76,9 +82,9 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
 
       <div className="space-y-4">
         <div className="rounded-xl border bg-card p-5 grid sm:grid-cols-3 gap-3">
-          <div className="sm:col-span-3 space-y-1.5"><Label>Project name</Label><Input value={name} onChange={(e) => setName(e.target.value)} /></div>
-          <div className="space-y-1.5 sm:col-span-2"><Label>Client</Label><Input value={client} onChange={(e) => setClient(e.target.value)} placeholder="Company or person" /></div>
-          <div className="space-y-1.5"><Label>Client email (optional)</Label><Input value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <div className="sm:col-span-3 space-y-1.5"><Label htmlFor="p-name">Project name</Label><Input id="p-name" value={name} onChange={(e) => setName(e.target.value)} /></div>
+          <div className="space-y-1.5 sm:col-span-2"><Label htmlFor="p-client">Client</Label><Input id="p-client" value={client} onChange={(e) => setClient(e.target.value)} placeholder="Company or person" /></div>
+          <div className="space-y-1.5"><Label htmlFor="p-email">Client email (optional)</Label><Input id="p-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
         </div>
 
         {ms.length === 0 && (
@@ -89,20 +95,20 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
           <div key={i} className="rounded-xl border bg-card p-5 space-y-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-muted-foreground w-24">Milestone {i + 1}</span>
-              <Input value={m.title} onChange={(e) => update(i, { title: e.target.value })} className="font-medium" />
+              <Input aria-label={`Milestone ${i + 1} title`} value={m.title} onChange={(e) => update(i, { title: e.target.value })} className="font-medium min-w-0" />
               <Button variant="ghost" size="icon" onClick={() => setMs(ms.filter((_, j) => j !== i))} aria-label="Remove milestone"><Trash2 /></Button>
             </div>
-            <Textarea value={m.deliverable} onChange={(e) => update(i, { deliverable: e.target.value })} rows={2} />
+            <Textarea aria-label={`Milestone ${i + 1} deliverable`} value={m.deliverable} onChange={(e) => update(i, { deliverable: e.target.value })} rows={2} />
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5"><Label>Amount</Label><Input inputMode="decimal" value={m.amount} onChange={(e) => update(i, { amount: e.target.value })} /></div>
-              <div className="space-y-1.5"><Label>Due date</Label><Input type="date" value={m.dueDate} onChange={(e) => update(i, { dueDate: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label htmlFor={`amt-${i}`}>Amount</Label><Input id={`amt-${i}`} inputMode="decimal" value={m.amount} onChange={(e) => update(i, { amount: e.target.value })} /></div>
+              <div className="space-y-1.5"><Label htmlFor={`due-${i}`}>Due date</Label><Input id={`due-${i}`} type="date" value={m.dueDate} onChange={(e) => update(i, { dueDate: e.target.value })} /></div>
             </div>
             <div className="space-y-2">
               <Label>Acceptance criteria</Label>
               {m.criteria.map((c, k) => (
                 <div key={k} className="rounded-lg border p-3 space-y-2 bg-background">
                   <div className="flex gap-2">
-                    <Input value={c.text} onChange={(e) => updateCrit(i, k, { text: e.target.value })} />
+                    <Input aria-label={`Milestone ${i + 1} criterion ${k + 1}`} value={c.text} onChange={(e) => updateCrit(i, k, { text: e.target.value })} className="min-w-0" />
                     <Button variant="ghost" size="icon" onClick={() => update(i, { criteria: m.criteria.filter((_, j) => j !== k) })} aria-label="Remove criterion"><Trash2 /></Button>
                   </div>
                   <div className={`flex gap-2 items-start text-xs ${c.quoteVerified ? "text-muted-foreground" : "text-unmet"}`}>
@@ -120,7 +126,7 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
 
         {ms.length > 0 && (
           <div className="rounded-xl border bg-card p-5 flex flex-wrap items-center gap-3">
-            <div className="text-sm">Total <span className="font-semibold">${total.toFixed(2)}</span> across {ms.length} milestones</div>
+            <div className="text-sm">Total <span className="font-semibold">{new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(total)}</span> across {ms.length} milestones</div>
             <div className="ml-auto flex gap-2">
               <Button variant="outline" disabled={saving} onClick={() => save(false)}>Save draft</Button>
               <Button disabled={saving} onClick={() => save(true)}>{saving ? "Saving" : "Save and create client link"}</Button>

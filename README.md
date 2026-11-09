@@ -1,61 +1,95 @@
 # Signoff
 
-Pay on acceptance for freelance and agency work. The client's money is held up front, an AI checker tests the delivery against the acceptance criteria both sides agreed, and the money is released only when the client signs off.
+Pay on acceptance for freelance and agency work. The client's money is held up front, an AI checker tests the delivery against the acceptance criteria both sides agreed and shows its evidence, and the money is released only when the client signs off.
+
+**Live demo:** https://signoff-demo.vercel.app (no sign-up: each visitor gets a private demo workspace with sandbox money)
 
 Built for the PayPal AI Hackathon. MIT licensed.
 
 ## Why
 
-Clients will not send a deposit to a freelancer they just met. Freelancers lose weeks chasing invoices for work that is already done. A payment authorization already solves the first half: it holds money without taking it. What is missing is a fair, fast way to decide that the work is accepted. That is the AI part.
+Clients will not send a deposit to a freelancer they just met. Freelancers chase invoices for work that is already done: in a 2015 Freelancers Union survey of 5,358 US freelancers, 71% had trouble getting paid at some point in their career, and half had trouble in the past year ([The Costs of Nonpayment](https://onlabor.org/wp-content/uploads/2017/05/FU_NonpaymentReport_r3.pdf)). A payment authorization already solves the first half: it holds money without taking it. What is missing is a fair, fast way to decide that the work is accepted. That is the AI part.
 
 ## Payment rail: Braintree, a PayPal service
 
-Signoff moves money through **Braintree**, which is part of the PayPal developer platform. The official rules say so in the project requirements:
+Signoff moves money through **Braintree**, which is part of the PayPal developer platform. The official rules, section 4, say so:
 
 > "This includes all the services provided by PayPal such as Venmo, Braintree, Xoom, Honey, Zettle, Paidy, Hyperwallet, Simility, Swift Financial, and others."
 
-We chose Braintree because PayPal does not open accounts in Pakistan, where the builder lives, so PayPal REST sandbox credentials were not available. The Braintree sandbox is. Clients still pay with their PayPal account (through Braintree's PayPal integration) or with a card.
+PayPal does not open accounts in Pakistan, where the builder lives, so PayPal REST sandbox credentials were not available. The Braintree sandbox is. Clients pay with their PayPal account through Braintree's PayPal integration, or with a card.
+
+**Status of the live sandbox:** the Braintree integration is written and covered by a gated live test suite (`tests/unit/live-braintree.test.ts`), but it has **not yet been run against the Braintree sandbox**, because the sandbox keys are still pending. Until they arrive, the hosted demo and the tests run on a built-in test rail that follows Braintree's rules and accepts Braintree's documented fake nonces. The header and the client page say which rail is live.
 
 | Product step | Braintree mechanism |
 |---|---|
 | Client funds a milestone | `transaction.sale` with `submitForSettlement: false`: an authorization, money held, nothing charged |
-| Hold expiry | `authorizationExpiresAt` on the transaction, shown to both sides, with a warning in the last day and reconcile marking it expired |
+| Hold expiry | `authorizationExpiresAt` on the transaction, shown to both sides, with a warning in the last day; reconcile marks it expired |
 | Client accepts | `transaction.submitForSettlement` (full release) |
 | Partial release | `submitForSettlement` with a smaller amount; the rest of the hold drops off |
-| Client declines | `transaction.void`: the hold is released |
+| Client declines | `transaction.void`, only after re-reading that the transaction is still `authorized` |
 | Payment form | Braintree Drop-in with PayPal (`intent: authorize`) and cards |
-| Webhooks | `webhookNotification.parse` verifies the signature; events are deduplicated and state is re-read from Braintree |
-| Reconcile | `transaction.find` and `dispute.search` compare local state with Braintree and repair drift |
-| Dispute defence | `dispute.addTextEvidence` and `dispute.finalize`, after the operator approves the pack |
+| Webhooks | `webhookNotification.parse` verifies the signature; events are deduplicated; the transaction or dispute is re-read from Braintree |
+| Reconcile | `transaction.find` and `dispute.search` compare local state with Braintree; mismatches are flagged, never papered over |
+| Dispute defence | `dispute.find`, `dispute.addTextEvidence` and `dispute.finalize`, after the operator approves the pack |
 
 ## The loop
 
-1. **Scope to milestones.** The operator pastes the scope of work. The AI drafts milestones: title, deliverable, amount, due date and two to five checkable acceptance criteria. Every criterion carries the exact sentence from the scope that justifies it, and the code checks that sentence really is in the scope. The operator edits and creates a client link.
-2. **Hold.** The client opens the link (no account needed) and funds a milestone with PayPal or a card. The page says plainly that the money is held, not charged, and when the hold expires.
-3. **Deliver.** The operator submits links (a staging URL, a public GitHub repository, a PDF) plus notes and files.
-4. **Check.** The checker agent reads the delivery with read-only tools and returns met, not met or needs a person for each criterion, quoting what it read.
-5. **Decide.** The client reads the evidence report and accepts and releases (typing their name to sign), requests changes (the AI drafts the note from the failing criteria), or declines (the hold is voided).
-6. **Receipt and record.** On release, Signoff writes a signed acceptance record (criteria, verdicts, evidence, the signer and timestamps, HMAC-SHA256 over canonical JSON) and shows a printable receipt.
-7. **Dispute defence.** If a chargeback opens on a released milestone, Signoff drafts an evidence pack from the signed acceptance record. Nothing is sent until the operator reviews and approves it; then it is submitted through the Braintree Disputes API.
-8. **Audit timeline.** Every state change lands on a timeline with Braintree transaction ids, dispute ids and check ids.
+1. **Scope to milestones.** The operator pastes the scope. The AI drafts milestones with two to five checkable acceptance criteria each. Every criterion carries the exact sentence from the scope that justifies it, and the code checks that sentence is really in the scope.
+2. **Hold.** The client opens a signed link (no account) and funds a milestone with PayPal or a card. The page says the money is held, not charged, and when the hold expires.
+3. **Deliver.** The operator submits links (a staging URL, a public GitHub repository, a PDF), notes and files. Files are marked either as the deliverable itself or as the freelancer's notes.
+4. **Check.** The checker reads the delivery with read-only tools and marks each criterion met, not met or needs a person, quoting what it read. The page shows live progress.
+5. **Decide.** The client reads the evidence report and accepts and releases (typing their name), requests changes (the AI drafts the note from the failing criteria), or declines (the hold is voided).
+6. **Record.** Sign-off writes an acceptance record (criteria, verdicts, evidence, signer, timestamps), signed with HMAC-SHA256 over canonical JSON, and a printable receipt.
+7. **Dispute defence.** If a chargeback opens on a released milestone, Signoff drafts evidence from the signed record. Nothing is sent until the operator approves it; then it goes to Braintree's Disputes API. The dispute screen shows the whole story in one view.
+8. **Audit timeline.** Every state change lands on a timeline (AG Grid) with Braintree transaction ids, dispute ids and check ids.
 
-## AI design
+### The two-minute demo
 
-**Evidence must be real.** Every quote the checker cites is checked in code against the exact text its tools returned (or the scope). Whitespace and quote styles are normalized; words and case are not. Quotes under eight characters do not count. A quote that is not found word for word is removed and counted on the report. A "met" verdict whose quotes were all removed becomes "needs a person". See `src/lib/ai/evidence.ts`.
+Open the live demo and click **Try the live demo**. You get a private workspace with the sample project, a fictional pottery studio site.
 
-**Two phases.** The checker first reads every link and file in the delivery, then may explore further with tools (a linked sub-page, a file in the repository). A second call judges each criterion with a Zod-validated structured output.
+1. Open the project, then **Open as client**. Fund milestone 1 with a hold.
+2. As the operator, pick **v1 with a cheat** and submit. The report flags text hidden from visitors and an instruction aimed at the AI, and shows each removed quote with the reason: "hidden from visitors on the page" or "copied from the requirement".
+3. As the client, **Request changes**, **Draft from the report**, send.
+4. As the operator, submit **v2, complete**. All four criteria are met, with quotes.
+5. As the client, type a name and **Sign off and release payment**. Open the receipt.
+6. As the operator, **Open a chargeback with a signed webhook**, review the drafted evidence and approve it. The dispute screen shows sign-off, chargeback, evidence and outcome.
 
-**Models.** Through the Vercel AI SDK. Google Gemini is the default (`gemini-3.5-flash`), Anthropic is the alternative (`claude-sonnet-5-5`), chosen by environment. With no key, a deterministic scripted checker runs and every report says so. Unit tests use the AI SDK's mock model, so they are deterministic.
+## The evidence rule
+
+Every quote the checker cites is verified in code (`src/lib/ai/evidence.ts`) and survives only if:
+
+- it is at least 20 characters, so a lone word cannot prove a criterion;
+- it is not the requirement itself: quoting the criterion back does not prove it was met;
+- it appears word for word in text a visitor can see on a delivered page, in a delivered file or in the repository. The scope is never a source, page titles and tool headers are never quotable, and text hidden from visitors (`hidden`, `display:none`, `visibility:hidden`, zero opacity or font size) never counts;
+- it shares at least one key word with the criterion.
+
+Removed quotes are kept and shown on the report with the reason. A "met" with no surviving quote becomes "needs a person". Text from the freelancer's own notes is shown as a claim, and a "met" resting only on notes goes to a person. Hidden text and instructions aimed at the checker are listed on the report as tampering.
 
 ## Safety model
 
-The checker reads untrusted content: whatever a freelancer delivers. So:
+- **The checker has no payment tools.** Its tools only read: `read_url`, `read_file`, `github_repo`, `github_file`. Nothing under `src/lib/ai/` can reach the payment rail. Money moves only from a request a person's click made: the client funding, signing off or declining, or the operator approving dispute evidence.
+- **What it reads is data, not instructions.** The prompts say so, document boundaries are escaped so a page cannot fake a new document, and the evidence rule means the model cannot invent support for a verdict.
+- **No requests to private addresses.** `read_url` reaches only hosts listed in the delivery. IP literals, including bracketed IPv6 and IPv4-mapped forms, are checked before connecting, and DNS answers are checked at connect time, so loopback, private, link-local, cloud metadata, NAT64 and 6to4 addresses are refused even after a redirect or a DNS rebind. Redirects are followed by hand and re-checked. Size and time are capped.
+- **GitHub reads** are limited to public repositories listed in the delivery. A server token is sent only after the repository is confirmed public without it.
+- **Money moves once.** Releasing and voiding first claim the milestone with a compare-and-set (`releasing`, `voiding`), then call Braintree, then settle the claim, so a sign-off and a decline racing each other cannot both reach Braintree. The signed record is written inside the claim.
+- **Secrets.** A production server refuses to start with the development session secret or the public demo passcode. Client links are signed with a per-project secret the operator can rotate to revoke old links.
+- **Caps.** Daily limits on AI checks, AI drafts and page reads, per demo workspace and for the whole server. Over a cap, or when the model fails, the scripted checker runs and the report says why.
 
-- **The checker has no payment tools at all.** Its tools only read: `read_url`, `read_file`, `github_repo`, `github_file`. The payment rail is not reachable from the AI code. Money moves only from a route a person's click reached: the client's sign-off, decline or funding, or the operator's approval of a dispute pack.
-- **Fetched content is data, never instructions.** Prompts say so, and the evidence rule means the model cannot invent support for a verdict. The sample v1 deliverable hides a line telling "automated reviewers" to mark everything met. The scripted checker and the live Gemini run both still reported v1 as incomplete.
-- **Requests to private addresses are refused.** `read_url` only reaches hosts listed in the delivery. DNS answers are checked at connect time, so loopback, private, link-local and cloud metadata addresses are refused even after a redirect or a DNS rebind. Redirects are followed by hand and re-checked. Size and time are capped. The only exception is this app's own `/samples/` pages, which hold the demo deliverables.
-- **GitHub reads are limited** to repositories listed in the delivery.
-- **The client link is signed** with HMAC; the operator console uses a passcode and a signed cookie.
+## Who holds the money
+
+The hold sits in the freelancer's own Braintree account, so a freelancer could still capture it from the Braintree control panel without the client's sign-off. Signoff does not make cheating impossible. What it gives both sides is an agreed test of done, a record they both signed, and evidence ready for a dispute if either side breaks the deal. A production version would keep the right to capture on a neutral platform account, such as PayPal's marketplace and platform payments, so neither side can move the money alone.
+
+## AI
+
+Through the Vercel AI SDK. **Google Gemini** is the default: `gemini-3.5-flash-lite`, then `gemini-3.5-flash` and `gemini-3.1-flash-lite` when a model is rate-limited. **Anthropic Claude** (`claude-sonnet-5-5`) is the alternative. With no key, a deterministic scripted checker runs, labelled on every report.
+
+A check reads every link and file once in parallel, lets the model explore further with tools only when the delivery has more to read (a repository, or pages linking to other delivery pages), then judges all criteria in one structured call. One call per check keeps a public demo inside a free-tier quota.
+
+### Evaluation
+
+`pnpm eval` runs 6 deliveries and 23 criteria with known right answers: the two sample versions, the cheat version, a prices page with one wrong price and a subjective criterion, a handover PDF uploaded as a file, and this repository on GitHub.
+
+**Latest, 9 November 2026, `google/gemini-3.5-flash-lite`: 23 of 23 correct, 0 wrong, 0 sent to a person.** For comparison, the scripted checker with no AI gets 14 of the 20 offline criteria right, 4 wrong and 2 sent to a person. Full table and timings: [docs/eval-latest.md](docs/eval-latest.md). The sample loop ran five times in a row with v1 failing the same two criteria and v2 passing every time, at about 2 seconds a check.
 
 ## Run it
 
@@ -63,79 +97,64 @@ Requirements: Node 22 or newer, pnpm.
 
 ```bash
 pnpm install
-cp .env.example .env.local   # optional, see below
+cp .env.example .env.local   # optional
 pnpm dev
 ```
 
-Open http://localhost:3000, sign in with the passcode `signoff-demo`, and click **Load sample project**.
+Open http://localhost:3000. Locally, sign in with the passcode `signoff-demo` and click **Load sample project**, or set `DEMO_MODE=true` to get the public-demo flow.
 
-- **With no keys** the app runs on a built-in test rail (same rules as Braintree, same fake nonces) and the scripted checker. The full loop works, including disputes.
-- **With Braintree sandbox keys** (`BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY`) the client page shows the Braintree Drop-in with PayPal and cards, and money moves in the sandbox. Create a free sandbox at https://sandbox.braintreegateway.com. Test card: `4111 1111 1111 1111`, any future expiry. Dispute test card: `4023 8984 9398 8028`.
-- **With `GOOGLE_GENERATIVE_AI_API_KEY`** (a free key from Google AI Studio works) the planner and checker use Gemini. Or set `ANTHROPIC_API_KEY`.
+- **With no keys** the app runs on the test rail and the scripted checker. The whole loop works, including disputes.
+- **With Braintree sandbox keys** (`BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY`) the client page shows the Braintree Drop-in with PayPal and cards. Create a free sandbox at https://sandbox.braintreegateway.com. Test card `4111 1111 1111 1111`; dispute test card `4023 8984 9398 8028`.
+- **With `GOOGLE_GENERATIVE_AI_API_KEY`** (a free key from Google AI Studio works) the planner and checker use Gemini.
 
-### The two-minute demo
-
-1. Sign in, click **Load sample project** (a fictional pottery studio site, two milestones).
-2. Click **Open as client**. Fund milestone 1 with a hold.
-3. Back as the operator, click **v1 (misses two criteria)** and submit. Within seconds the report shows the Saturday class time and the address are missing, with quotes from the page.
-4. As the client, click **Request changes**, then **Draft from the report**, and send it.
-5. As the operator, submit **v2 (complete)**. All four criteria are met.
-6. As the client, type your name and **Sign off and release payment**. Open the receipt.
-7. Dispute defence: on the test rail click **Send a signed dispute webhook**; on the sandbox fund with the dispute card and click **Settle now and check for disputes**. Review the drafted pack and approve it.
-
-The sample deliverables live in `public/samples/larkspur-v1` and `public/samples/larkspur-v2`.
-
-### Webhooks
-
-Point a Braintree sandbox webhook at `https://<your host>/api/webhooks/braintree` and subscribe to transaction and dispute events. Locally, without a public URL, **Reconcile with Braintree** pulls the same state.
+Hosting: [docs/deploy.md](docs/deploy.md) has the environment variables and the steps for Vercel with a hosted libSQL database, and where to point the Braintree webhook.
 
 ## Tests
 
 ```bash
-pnpm test        # unit and service tests: state machine, evidence rule, SSRF guard, full loop, mocked LLM, webhooks, disputes
-pnpm test:e2e    # Playwright: operator and client run the whole loop in a browser on the test rail
-pnpm typecheck && pnpm lint
+pnpm test        # unit and service tests, including tests/unit/review-1.test.ts for every finding of the first security review
+pnpm test:e2e    # Playwright: the whole loop in demo mode, workspace isolation, the new-project flow, and no sideways scroll at 390 px
+pnpm typecheck && pnpm lint && pnpm build
+pnpm eval        # the evaluation set, with the model in your environment
 
-# Live checks, opt in, read keys from the environment:
+# Live checks, opt in:
 set -a; . ./.env.local; set +a
 LIVE_AI=1 pnpm vitest run tests/unit/live-ai.test.ts
 LIVE_BRAINTREE=1 pnpm vitest run tests/unit/live-braintree.test.ts
+E2E_BASE_URL=https://signoff-demo.vercel.app pnpm test:e2e
 ```
-
-The mocked-model test has the model invent a quote and try to fetch an unlisted host; it checks that the quote is removed, the verdict drops to "needs a person" and the fetch is blocked.
 
 ## Architecture
 
 ```
 src/
-  app/                      Next.js App Router pages, server actions, webhook route
+  app/                      pages, server actions, the webhook route, /api/health
     projects/               operator console
-    c/[id]/[token]/         client share page (Drop-in, decision panel)
+    c/[id]/[token]/         client page (Drop-in, decision panel)
     receipt/[id]/           printable receipt with the signed record
-    api/webhooks/braintree  webhook endpoint
   lib/
-    domain/milestone-machine.ts   the state machine every money move goes through
+    domain/milestone-machine.ts   the state machine every money move goes through, with claim states
     payments/rail.ts              the one narrow PaymentRail interface
-    payments/braintree-rail.ts    Braintree implementation
-    payments/fake-rail.ts         in-process test rail with the same rules
-    services/                     milestones, deliveries, disputes and webhooks, audit
+    payments/braintree-rail.ts    Braintree
+    payments/fake-rail.ts         the test rail, stored in the database
+    services/                     milestones, deliveries, disputes and webhooks, workspaces, usage caps, audit
     ai/planner.ts                 scope to milestones with verified citations
-    ai/checker.ts                 the checker agent and the scripted fallback
-    ai/evidence.ts                the word-for-word evidence rule
-    ai/tools/                     read-only tools and the SSRF-guarded fetch
-    db/schema.ts                  Drizzle schema on libSQL (SQLite file locally)
+    ai/checker.ts                 the checker, tampering findings, the scripted fallback
+    ai/evidence.ts                the evidence rule
+    ai/tools/                     read-only tools, HTML to visible text, the private-address guard
+    eval/cases.ts                 the evaluation set
 ```
 
-Every state change goes through `transition()` in the state machine with a compare-and-set on the current state, so two racing clicks cannot both move money. Braintree has no idempotency key, so a retried authorization with the same order id returns the existing hold, and a retried release or void that already went through returns the current transaction instead of failing.
+Stack: Next.js 16, TypeScript strict, Tailwind with shadcn/ui, AG Grid Community, Drizzle on libSQL (Turso when hosted), Zod, Vercel AI SDK, Vitest, Playwright, GitHub Actions.
 
-Stack: Next.js 16, TypeScript strict, Tailwind with shadcn/ui, AG Grid Community (ledger and audit timeline), Drizzle on libSQL, Zod, Vercel AI SDK, Vitest, Playwright, GitHub Actions.
+## Known limits
 
-## Tools used
-
-- **Braintree** (a PayPal service): Node SDK on the server, Drop-in in the browser.
-- **Google Gemini** through the Vercel AI SDK (`@ai-sdk/google`), default model `gemini-3.5-flash`: drafts milestones from the scope, runs the checker agent's tool loop, judges criteria with structured output, drafts change requests.
-- **Anthropic Claude** through `@ai-sdk/anthropic` as the alternative provider.
-- **AG Grid Community** for the ledger and the audit timeline.
+- Not yet run against the Braintree sandbox; see the status above. What the Drop-in's PayPal button does on a sandbox not linked to a PayPal test account is unverified.
+- Hidden text is detected from the `hidden` attribute and inline styles. Text hidden by a stylesheet class, off-screen positioning or matching colours is not detected; a headless browser would catch it.
+- Client links do not expire; the operator can replace a link to revoke the old one.
+- The test rail's dispute outcome follows Braintree's sandbox convention: evidence containing `compelling_evidence` wins. A real dispute is decided by the card issuer.
+- The Gemini free tier allows few requests per minute and about 20 a day on `gemini-3.5-flash`. A busy public demo needs a paid key, or it falls back to the scripted checker and says so.
+- Login attempts are limited per address per day; there is no account lockout beyond that.
 
 ## Licence
 

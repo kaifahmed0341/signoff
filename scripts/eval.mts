@@ -5,6 +5,7 @@
  *   pnpm eval                       # every case once, writes docs/eval-latest.md
  *   pnpm eval --sample-runs 5       # the sample loop (v1 then v2) five times, with timings
  *   pnpm eval --offline             # skip the case that needs GitHub
+ *   pnpm eval --pause 15            # wait between checks, to stay inside a free-tier quota
  *
  * Uses an in-memory database and the test rail. The model comes from the
  * environment like the app (Gemini by default); with no key it runs the
@@ -18,6 +19,9 @@ import { freshWorld, startStaticServer } from "../tests/unit/helpers";
 const args = process.argv.slice(2);
 const sampleRuns = Number(args[args.indexOf("--sample-runs") + 1]) || 0;
 const offline = args.includes("--offline");
+const pauseSeconds = args.includes("--pause") ? Number(args[args.indexOf("--pause") + 1]) : 0;
+const pause = () => new Promise((r) => setTimeout(r, pauseSeconds * 1000));
+const byId = (id: string) => EVAL_CASES.find((c) => c.id === id)!;
 
 const { server, origin } = await startStaticServer();
 const world = await freshWorld({
@@ -33,7 +37,7 @@ console.log(`Model: ${model}\n`);
 
 function print(results: EvalCaseResult[]) {
   for (const r of results) {
-    console.log(`${r.caseId}  (${r.seconds.toFixed(1)} s${r.fallbackReason ? `, FALLBACK: ${r.fallbackReason}` : ""})`);
+    console.log(`${r.caseId}  (${r.seconds.toFixed(1)} s, ${r.model}${r.fallbackReason ? `, FALLBACK: ${r.fallbackReason}` : ""})`);
     for (const row of r.rows) console.log(`  ${row.correct ? "ok   " : row.got === "needs_person" ? "PERSON" : "WRONG"} expected ${row.expected.padEnd(12)} got ${row.got.padEnd(12)} ${row.criterion}`);
   }
 }
@@ -41,11 +45,13 @@ function print(results: EvalCaseResult[]) {
 if (sampleRuns) {
   const lines: string[] = [];
   for (let i = 1; i <= sampleRuns; i++) {
-    const v1 = await runEvalCase(world.db, world.rail, world.owner.id, EVAL_CASES[0], origin);
-    const v2 = await runEvalCase(world.db, world.rail, world.owner.id, EVAL_CASES[1], origin);
+    const v1 = await runEvalCase(world.db, world.rail, world.owner.id, byId("landing-v1"), origin);
+    await pause();
+    const v2 = await runEvalCase(world.db, world.rail, world.owner.id, byId("landing-v2"), origin);
+    await pause();
     const fmt = (r: EvalCaseResult) => r.rows.map((x) => (x.got === "met" ? "M" : x.got === "not_met" ? "N" : "P")).join("");
     const ok = v1.rows.every((x) => x.correct) && v2.rows.every((x) => x.correct);
-    const line = `run ${i}: v1 ${fmt(v1)} (${v1.seconds.toFixed(1)} s)  v2 ${fmt(v2)} (${v2.seconds.toFixed(1)} s)  ${ok ? "as expected" : "MISMATCH"}${v1.fallbackReason || v2.fallbackReason ? `  fallback: ${v1.fallbackReason ?? v2.fallbackReason}` : ""}`;
+    const line = `run ${i}: v1 ${fmt(v1)} (${v1.seconds.toFixed(1)} s, ${v1.model})  v2 ${fmt(v2)} (${v2.seconds.toFixed(1)} s, ${v2.model})  ${ok ? "as expected" : "MISMATCH"}${v1.fallbackReason || v2.fallbackReason ? `  fallback: ${v1.fallbackReason ?? v2.fallbackReason}` : ""}`;
     console.log(line);
     lines.push(line);
   }
@@ -55,6 +61,7 @@ if (sampleRuns) {
   for (const c of EVAL_CASES) {
     if (offline && c.network) continue;
     results.push(await runEvalCase(world.db, world.rail, world.owner.id, c, origin));
+    await pause();
   }
   print(results);
   const s = scoreTable(results);
@@ -71,13 +78,15 @@ if (sampleRuns) {
     `|---|---|---|---|---|`,
     ...results.flatMap((r) => r.rows.map((x) => `| ${r.caseId} | ${x.criterion} | ${x.expected} | ${x.got} | ${x.correct ? "correct" : x.got === "needs_person" ? "to a person" : "wrong"} |`)),
     ``,
-    `| Delivery | Seconds | Notes |`,
-    `|---|---|---|`,
-    ...results.map((r) => `| ${r.caseId} | ${r.seconds.toFixed(1)} | ${r.fallbackReason ?? ""} |`),
+    `| Delivery | Model that answered | Seconds | Notes |`,
+    `|---|---|---|---|`,
+    ...results.map((r) => `| ${r.caseId} | ${r.model} | ${r.seconds.toFixed(1)} | ${r.fallbackReason ?? ""} |`),
     ``,
   ].join("\n");
-  writeFileSync("docs/eval-latest.md", md);
-  console.log("\nWrote docs/eval-latest.md");
+  if (!args.includes("--no-write")) {
+    writeFileSync("docs/eval-latest.md", md);
+    console.log("\nWrote docs/eval-latest.md");
+  }
 }
 server.close();
 process.exit(0);

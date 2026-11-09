@@ -26,7 +26,8 @@ export default defineConfig({
           APP_URL: `http://localhost:${PORT}`,
           DATABASE_URL: "file:./data/e2e.db",
           BRAINTREE_ENVIRONMENT: "fake",
-          AI_PROVIDER: "scripted",
+          // E2E_LIVE_AI=1 uses the model from .env.local instead of the scripted checker.
+          ...(process.env.E2E_LIVE_AI ? {} : { AI_PROVIDER: "scripted" }),
           DEMO_MODE: "true",
           NEXT_DIST_DIR: ".next-e2e",
         },
