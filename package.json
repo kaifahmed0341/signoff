@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "test:live": "PAYPAL_LIVE_TESTS=1 vitest run tests/unit/live-sandbox.test.ts",
+    "test:live": "LIVE_BRAINTREE=1 LIVE_AI=1 vitest run tests/unit/live-braintree.test.ts tests/unit/live-ai.test.ts",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
