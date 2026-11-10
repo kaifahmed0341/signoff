@@ -20,6 +20,11 @@ function SourceLabel({ source }: { source: string }) {
   );
 }
 
+/** Removed quotes worth showing: on a "not met" verdict, short or off-point quotes are noise, not tampering. */
+function shownDropped(v: MilestoneView["verdicts"][number] | undefined) {
+  return (v?.dropped ?? []).filter((d) => v!.verdict !== "not_met" || !/^(too short|does not mention)/.test(d.reason));
+}
+
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function EvidenceReport({ m }: { m: MilestoneView }) {
@@ -111,7 +116,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
                       </div>
                     </blockquote>
                   ))}
-                  {(v?.dropped ?? []).filter((d) => v!.verdict !== "not_met" || !/^(too short|does not mention)/.test(d.reason)).map((d, k) => (
+                  {shownDropped(v).map((d, k) => (
                     <div key={k} className="mt-2 rounded-md border border-dashed border-red-300 dark:border-red-900 px-3 py-2 text-sm flex gap-2">
                       <X className="size-3.5 mt-1 shrink-0 text-unmet" />
                       <div className="min-w-0">
@@ -120,7 +125,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
                       </div>
                     </div>
                   ))}
-                  {v?.note && (
+                  {v?.note && !(/were removed\. See why below\./.test(v.note) && shownDropped(v).length === 0) && (
                     <div className="mt-2 text-xs flex gap-1.5 text-amber-800 dark:text-amber-300">
                       <Info className="size-3.5 shrink-0" />
                       {v.note}
