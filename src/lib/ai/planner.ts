@@ -28,13 +28,27 @@ export const planSchema = z.object({
               needsPerson: z.boolean().describe("True when the line is a matter of taste or feel that a person must judge, such as modern, mobile friendly or calm and professional"),
             }),
           )
-          .min(1)
-          .max(8),
+          .describe("One to eight criteria"),
       }),
     )
-    .min(1)
-    .max(8),
+    .describe("One to eight milestones"),
 });
+
+/**
+ * Array length limits are enforced here, after parsing, not in the schema: Gemini answers
+ * 400 INVALID_ARGUMENT to a response schema with minItems or maxItems on these arrays.
+ */
+export const MAX_PLAN_MILESTONES = 8;
+export const MAX_PLAN_CRITERIA = 8;
+
+export function enforcePlanLimits(plan: Plan): Plan {
+  const milestones = plan.milestones
+    .map((m) => ({ ...m, criteria: m.criteria.slice(0, MAX_PLAN_CRITERIA) }))
+    .filter((m) => m.criteria.length > 0)
+    .slice(0, MAX_PLAN_MILESTONES);
+  if (milestones.length === 0) throw new Error("The model returned no milestones with criteria");
+  return { ...plan, milestones };
+}
 
 export type Plan = z.infer<typeof planSchema>;
 
@@ -81,7 +95,7 @@ export async function planFromScope(scope: string, allowAi: () => Promise<string
           prompt: `Scope of work:\n<scope>\n${scope.replace(/<\/scope>/gi, "")}\n</scope>`,
         }),
       );
-      return finalizePlan(r.value.output, scope, r.label);
+      return finalizePlan(enforcePlanLimits(r.value.output), scope, r.label);
     } catch (err) {
       fallbackReason = `The AI model failed (${err instanceof Error ? err.message.split("\n")[0].slice(0, 100) : "unknown error"})`;
     }

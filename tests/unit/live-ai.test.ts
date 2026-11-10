@@ -29,8 +29,27 @@ describe.runIf(run)("live model", () => {
     expect(resolveModel().model).not.toBeNull();
     const plan = await planFromScope(SAMPLE_SCOPE);
     console.log(resolveModel().label, JSON.stringify(plan, null, 2));
+    // The scripted planner also yields two milestones at $450, so assert who drafted it.
+    expect(plan.fallbackReason).toBeUndefined();
+    expect(plan.model).not.toBe("scripted");
     expect(plan.milestones.length).toBeGreaterThanOrEqual(2);
     expect(plan.milestones[0].amountCents).toBe(45000);
+  }, 120_000);
+
+  it("drafts a plan from a pasted scope of its own on the real model, with no fallback", async () => {
+    await freshWorld({ APP_URL: origin, GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY, ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY });
+    const scope = [
+      "Harbor Lane Books needs a small online catalogue. Budget $900.",
+      "",
+      "The first part is a home page that lists this month's staff picks with their prices, and a contact form. Due in a week.",
+      "The second part is a search page where visitors can find a book by title or author. It should feel calm and easy to read.",
+    ].join("\n");
+    const plan = await planFromScope(scope);
+    console.log(plan.model, plan.fallbackReason ?? "no fallback", plan.milestones.map((m) => `${m.title}: ${m.criteria.length}`));
+    expect(plan.fallbackReason).toBeUndefined();
+    expect(plan.model).not.toBe("scripted");
+    expect(plan.milestones.length).toBeGreaterThanOrEqual(1);
+    expect(plan.milestones.every((m) => m.criteria.length > 0)).toBe(true);
   }, 120_000);
 
   it("checks v1 and v2 of the sample deliverable", async () => {

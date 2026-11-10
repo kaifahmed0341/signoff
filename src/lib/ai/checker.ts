@@ -43,7 +43,7 @@ const verdictsSchema = z.object({
       reasoning: z.string().max(600),
       evidence: z
         .array(z.object({ source: z.string(), quote: z.string().describe("Exact text copied from that document, at least a few words") }))
-        .max(3),
+        .describe("At most three quotes"),
     }),
   ),
 });
@@ -338,7 +338,8 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
     const finalVerdicts: { verdict: VerdictValue }[] = [];
     for (const [i, c] of crit.entries()) {
       const r = out.results.find((x) => x.criterionId === `c${i + 1}`);
-      const raw: RawEvidence[] = r?.evidence ?? [];
+      // At most three quotes, enforced here: Gemini refuses a response schema with maxItems on an array.
+      const raw: RawEvidence[] = (r?.evidence ?? []).slice(0, 3);
       const verified = verifyEvidence(raw, corpus, { text: c.text, sourceQuote: c.sourceQuote });
       droppedTotal += verified.dropped.length;
       const final = finalizeVerdict({

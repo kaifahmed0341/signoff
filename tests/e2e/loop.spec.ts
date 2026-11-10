@@ -271,6 +271,12 @@ test("a chargeback after sign-off works on a project the freelancer wrote from s
   await page.getByRole("button", { name: "Draft milestones" }).click();
   await expect(page.getByText("Milestone 1").first()).toBeVisible({ timeout: 120_000 });
   await expect(page.getByRole("textbox", { name: "Project name" })).toHaveValue("Signoff front page review");
+  // On a server with a live model, the model drafted this: no fallback to the scripted planner.
+  const ai = ((await (await page.request.get("/api/health")).json()) as { ai: { provider: string } }).ai.provider;
+  if (ai !== "scripted") {
+    await expect(page.getByText(/Drafted \d+ milestones|criterion quote\(s\) were not found/).first()).toBeVisible();
+    await expect(page.getByText(/scripted planner drafted these/)).toHaveCount(0);
+  }
   await page.getByRole("button", { name: "Save and create client link" }).click();
   await expect(page.getByRole("heading", { name: "Signoff front page review" })).toBeVisible();
   const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();

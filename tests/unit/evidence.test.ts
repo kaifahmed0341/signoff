@@ -105,3 +105,18 @@ describe("payment instrument labels", () => {
     expect(pp.payerLabel).toBe("PayPal buyer@example.com");
   });
 });
+
+describe("plan limits are enforced in code, not in the response schema", () => {
+  it("keeps at most eight milestones and eight criteria, drops empty milestones, and refuses an empty plan", async () => {
+    const { enforcePlanLimits, planSchema } = await import("@/lib/ai/planner");
+    const { z } = await import("zod");
+    const json = JSON.stringify(z.toJSONSchema(planSchema));
+    expect(json).not.toMatch(/minItems|maxItems/);
+    const crit = (n: number) => Array.from({ length: n }, (_, i) => ({ text: `c${i}`, sourceQuote: "q", needsPerson: false }));
+    const ms = (n: number, c: number) => Array.from({ length: n }, (_, i) => ({ title: `m${i}`, deliverable: "d", amount: 1, dueInDays: null, criteria: crit(c) }));
+    const out = enforcePlanLimits({ projectName: "p", milestones: [...ms(1, 0), ...ms(10, 12)] });
+    expect(out.milestones).toHaveLength(8);
+    expect(out.milestones.every((m) => m.criteria.length === 8)).toBe(true);
+    expect(() => enforcePlanLimits({ projectName: "p", milestones: ms(2, 0) })).toThrow(/no milestones/);
+  });
+});
