@@ -52,10 +52,11 @@ const schema = z.object({
   LIMIT_AI_CHECKS_GLOBAL: z.coerce.number().int().positive().default(400),
   LIMIT_AI_PLANS_PER_WORKSPACE: z.coerce.number().int().positive().default(10),
   LIMIT_AI_PLANS_GLOBAL: z.coerce.number().int().positive().default(300),
-  LIMIT_AI_CHECKS_PER_ADDRESS: z.coerce.number().int().positive().default(120),
+  LIMIT_AI_CHECKS_PER_ADDRESS: z.coerce.number().int().positive().default(400),
   LIMIT_AI_NOTES_PER_WORKSPACE: z.coerce.number().int().positive().default(10),
   LIMIT_AI_NOTES_GLOBAL: z.coerce.number().int().positive().default(150),
-  LIMIT_WORKSPACES_PER_ADDRESS: z.coerce.number().int().positive().default(25),
+  LIMIT_WORKSPACES_PER_ADDRESS: z.coerce.number().int().positive().default(1000),
+  LIMIT_WORKSPACES_GLOBAL: z.coerce.number().int().positive().default(3000),
   LIMIT_FETCHES_PER_WORKSPACE: z.coerce.number().int().positive().default(150),
   LIMIT_FETCHES_GLOBAL: z.coerce.number().int().positive().default(5000),
 });

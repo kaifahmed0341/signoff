@@ -217,10 +217,28 @@ describe("N6 fresh workspaces do not get fresh budgets", () => {
     expect(again.ok).toBe(false);
   });
   it("N6: one address can start a limited number of workspaces a day", async () => {
+    const { setEnvForTests } = await import("@/lib/env");
+    setEnvForTests({ LIMIT_WORKSPACES_PER_ADDRESS: 25 });
     for (let i = 0; i < 25; i++) await createDemoWorkspace(db, Date.now(), "same-address");
     await expect(createDemoWorkspace(db, Date.now(), "same-address")).rejects.toThrow(/00:00 UTC/);
     await expect(createDemoWorkspace(db, Date.now(), "same-address")).rejects.toBeInstanceOf(WorkspaceLimitError);
     await expect(createDemoWorkspace(db, Date.now(), "another-address")).resolves.toBeTruthy();
+  });
+  it("the server's daily workspace cap holds whatever the addresses", async () => {
+    const { setEnvForTests } = await import("@/lib/env");
+    setEnvForTests({ LIMIT_WORKSPACES_GLOBAL: 3 });
+    let made = 0;
+    let refused: unknown = null;
+    for (let i = 0; i < 6 && !refused; i++) {
+      try {
+        await createDemoWorkspace(db, Date.now(), `office-${i}`);
+        made++;
+      } catch (err) {
+        refused = err;
+      }
+    }
+    expect(refused).toBeInstanceOf(WorkspaceLimitError);
+    expect(made).toBeLessThanOrEqual(3);
   });
   it("N6: workspaces from one address share one AI budget", async () => {
     setEnvLimit();

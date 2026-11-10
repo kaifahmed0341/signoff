@@ -84,7 +84,7 @@ export async function startDemo() {
     try {
       w = await createDemoWorkspace(db, Date.now(), (await isE2eBypass()) ? null : hashAddress(await clientAddress()));
     } catch (err) {
-      if (err instanceof WorkspaceLimitError) redirect("/?limit=workspaces");
+      if (err instanceof WorkspaceLimitError) redirect("/finished-run?limit=workspaces");
       throw err;
     }
     await startSession(w.id);

@@ -5,7 +5,6 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { env } from "@/lib/env";
 import { currentWorkspace } from "@/lib/web/auth";
 import { startDemo } from "./actions";
-import { workspaceLimitMessage } from "@/lib/services/workspaces";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +31,8 @@ const steps = [
   },
 ];
 
-export default async function Home({ searchParams }: { searchParams: Promise<{ limit?: string }> }) {
+export default async function Home() {
   const e = env();
-  const { limit } = await searchParams;
   const workspace = await currentWorkspace();
   const primary = workspace ? (
     <Link href="/dashboard" className={buttonVariants({ size: "lg", className: "h-11 px-5 text-base" })}>
@@ -66,26 +64,24 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ l
         <section className="mx-auto max-w-6xl px-4 pt-10 sm:pt-16 pb-12 grid lg:grid-cols-[1.15fr_1fr] gap-12 items-center">
           <div>
             <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight leading-[1.08]">
-              Get paid the moment your client accepts the work.
+              Proof of delivery for services.
             </h1>
             <p className="mt-5 text-lg text-muted-foreground max-w-xl">
-              Signoff holds the client&apos;s money up front, has an AI check the delivery against what you both agreed, and releases the money when the client signs off.
+              A parcel has a tracking number when a customer disputes the charge. A website, a design or a report has nothing. Signoff holds the client&apos;s money, has an AI check the delivery against what you both agreed, and takes the client&apos;s signature. That signed acceptance record answers the chargeback.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               {primary}
+              <Link href="/finished-run" className={buttonVariants({ size: "lg", variant: "ghost", className: "h-11 px-4 text-base" })}>
+                See a finished run
+              </Link>
               {e.DEMO_VIDEO_URL && (
                 <a href={e.DEMO_VIDEO_URL} className={buttonVariants({ size: "lg", variant: "outline", className: "h-11 px-5 text-base" })}>
                   <PlayCircle /> Watch the 3 minute demo
                 </a>
               )}
             </div>
-            {e.DEMO_MODE && !workspace && limit !== "workspaces" && (
+            {e.DEMO_MODE && !workspace && (
               <p className="mt-3 text-sm text-muted-foreground">No sign-up. You get a private demo workspace with a sample project. Sandbox money only.</p>
-            )}
-            {limit === "workspaces" && !workspace && (
-              <p className="mt-3 text-sm text-amber-800 dark:text-amber-300" role="status">
-                {workspaceLimitMessage()}
-              </p>
             )}
           </div>
           <HeroCard />
@@ -93,18 +89,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ l
 
         <section className="border-y bg-card">
           <div className="mx-auto max-w-6xl px-4 py-10 grid md:grid-cols-[1fr_1fr_1.2fr] gap-8 items-start">
-            <Stat value="71%" label="of US freelancers surveyed had trouble getting paid at some point in their career." />
-            <Stat value="1 in 2" label="had trouble collecting payment in the year before the survey, 2014." />
+            <Stat value="21%" label="of merchants' chargebacks are first-party fraud: customers disputing purchases they made. The figure covers all merchants, not only services." />
+            <Stat value="56%" label="of US small businesses are owed money on unpaid invoices." />
             <div className="text-sm text-muted-foreground">
               <p>
-                Clients will not send a deposit to someone they just met, and freelancers chase invoices for work that is already done. A payment hold fixes the first half. Signoff adds a fair, fast way to decide the work is accepted.
+                A client who accepted the work can still dispute the card charge, and a service has no tracking number to show the bank. The signed acceptance record is that proof. The hold means the client never pays on trust, and the freelancer never works on it.
               </p>
               <p className="mt-3 text-xs">
-                Source:{" "}
-                <a className="underline" href="https://onlabor.org/wp-content/uploads/2017/05/FU_NonpaymentReport_r3.pdf">
-                  Freelancers Union, The Costs of Nonpayment
-                </a>
-                , survey of 5,358 US freelancers, July 2015.
+                Sources:{" "}
+                <a className="underline" href="https://www.visaacceptance.com/content/dam/documents/en/hidden-cost-first-party-fraud.pdf">Datos Insights for Visa Acceptance, 2025</a>, survey of 840 merchants;{" "}
+                <a className="underline" href="https://quickbooks.intuit.com/r/small-business-data/small-business-late-payments-report-2025/">Intuit QuickBooks, 2025 Small Business Late Payments Report</a>, survey of 2,487 US small businesses.
               </p>
             </div>
           </div>

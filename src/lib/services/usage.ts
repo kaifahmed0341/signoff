@@ -12,11 +12,11 @@ export function limits(kind: UsageKind): { perWorkspace: number; perAddress: num
       return { perWorkspace: e.LIMIT_AI_CHECKS_PER_WORKSPACE, perAddress: e.LIMIT_AI_CHECKS_PER_ADDRESS, global: e.LIMIT_AI_CHECKS_GLOBAL };
     // Judges may share one office address, so an address gets ten workspaces' worth (never more than the global cap).
     case "ai_plan":
-      return { perWorkspace: e.LIMIT_AI_PLANS_PER_WORKSPACE, perAddress: Math.min(e.LIMIT_AI_PLANS_PER_WORKSPACE * 10, e.LIMIT_AI_PLANS_GLOBAL), global: e.LIMIT_AI_PLANS_GLOBAL };
+      return { perWorkspace: e.LIMIT_AI_PLANS_PER_WORKSPACE, perAddress: e.LIMIT_AI_PLANS_GLOBAL, global: e.LIMIT_AI_PLANS_GLOBAL };
     case "ai_note":
-      return { perWorkspace: e.LIMIT_AI_NOTES_PER_WORKSPACE, perAddress: Math.min(e.LIMIT_AI_NOTES_PER_WORKSPACE * 10, e.LIMIT_AI_NOTES_GLOBAL), global: e.LIMIT_AI_NOTES_GLOBAL };
+      return { perWorkspace: e.LIMIT_AI_NOTES_PER_WORKSPACE, perAddress: e.LIMIT_AI_NOTES_GLOBAL, global: e.LIMIT_AI_NOTES_GLOBAL };
     case "fetch":
-      return { perWorkspace: e.LIMIT_FETCHES_PER_WORKSPACE, perAddress: Math.min(e.LIMIT_FETCHES_PER_WORKSPACE * 10, e.LIMIT_FETCHES_GLOBAL), global: e.LIMIT_FETCHES_GLOBAL };
+      return { perWorkspace: e.LIMIT_FETCHES_PER_WORKSPACE, perAddress: e.LIMIT_FETCHES_GLOBAL, global: e.LIMIT_FETCHES_GLOBAL };
   }
 }
 

@@ -100,13 +100,15 @@ describe("exploration decision", () => {
 });
 
 describe("judging-period limits", () => {
-  it("one office address can start 25 workspaces and run 120 AI checks a day by default", async () => {
+  it("an office of judges on one address is never the limit: the global and per-workspace caps are", async () => {
     const { limits } = await import("@/lib/services/usage");
     const { setEnvForTests } = await import("@/lib/env");
     setEnvForTests({}); // the defaults, as on the host
-    expect(env().LIMIT_WORKSPACES_PER_ADDRESS).toBeGreaterThanOrEqual(25);
-    expect(limits("ai_check").perAddress).toBeGreaterThanOrEqual(120);
+    expect(env().LIMIT_WORKSPACES_PER_ADDRESS).toBeGreaterThanOrEqual(1000);
+    expect(env().LIMIT_WORKSPACES_GLOBAL).toBeGreaterThanOrEqual(env().LIMIT_WORKSPACES_PER_ADDRESS);
+    expect(limits("ai_check").perAddress).toBe(limits("ai_check").global);
     expect(limits("ai_check").global).toBe(400);
+    expect(limits("ai_check").perWorkspace).toBe(15);
   });
 
   it("says when a cap resets, in plain words", async () => {

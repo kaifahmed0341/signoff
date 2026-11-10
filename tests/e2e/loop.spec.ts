@@ -45,7 +45,7 @@ async function noSidewaysScroll(page: Page) {
 
 test("a visitor runs the whole loop in a private demo workspace", async ({ page, context }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Get paid the moment/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Proof of delivery for services/ })).toBeVisible();
   await page.screenshot({ path: `${shots}/00-front.png`, fullPage: true });
   await page.getByRole("button", { name: "Try the live demo" }).click();
   await expect(page.getByText("Demo workspace.")).toBeVisible();

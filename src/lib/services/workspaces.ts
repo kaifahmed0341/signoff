@@ -24,19 +24,23 @@ export async function ensureOwnerWorkspace(db: DB): Promise<Workspace> {
 export class WorkspaceLimitError extends Error {}
 
 export function workspaceLimitMessage(now = Date.now()): string {
-  return `This network has started ${env().LIMIT_WORKSPACES_PER_ADDRESS} demo workspaces today, the most one address may start in a day. Open the demo in a browser you used before, run it locally with no keys (see the README), or come back after ${resetPhrase(now).replace("the limit resets at ", "")}.`;
+  return `The demo has started as many new workspaces as it allows today, so this is a read-only finished run instead. New workspaces open again at ${resetPhrase(now).replace("the limit resets at ", "")}. A browser you used before keeps its workspace, and the README shows how to run it locally with no keys.`;
 }
 
 /**
  * A new private demo workspace. `ipHash` is a keyed hash of the visitor's
- * address; one address can start at most LIMIT_WORKSPACES_PER_ADDRESS a day,
- * so clearing cookies does not hand out fresh AI budgets.
+ * address; one address can start at most LIMIT_WORKSPACES_PER_ADDRESS a day
+ * (set high, so judges sharing one office address are never locked out), and
+ * the server at most LIMIT_WORKSPACES_GLOBAL. Per-workspace and global AI caps
+ * are the real protection.
  */
 export async function createDemoWorkspace(db: DB, now = Date.now(), ipHash: string | null = null): Promise<Workspace> {
   await pruneDemoWorkspaces(db, now);
+  // Counted per UTC day, like every other cap, so the reset time is exact.
+  const since = new Date(startOfDayUtc(now));
+  const [all] = await db.select({ n: count() }).from(workspaces).where(and(eq(workspaces.kind, "demo"), gte(workspaces.createdAt, since)));
+  if ((all?.n ?? 0) >= env().LIMIT_WORKSPACES_GLOBAL) throw new WorkspaceLimitError(workspaceLimitMessage(now));
   if (ipHash) {
-    // Counted per UTC day, like every other cap, so the reset time is exact.
-    const since = new Date(startOfDayUtc(now));
     const [row] = await db.select({ n: count() }).from(workspaces).where(and(eq(workspaces.ipHash, ipHash), gte(workspaces.createdAt, since)));
     if ((row?.n ?? 0) >= env().LIMIT_WORKSPACES_PER_ADDRESS) {
       throw new WorkspaceLimitError(workspaceLimitMessage(now));
