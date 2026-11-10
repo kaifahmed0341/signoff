@@ -24,7 +24,7 @@ The problem, in two numbers: 56 percent of US small businesses are owed money on
 Others in this contest hold money, have an AI check the work and capture on approval. Signoff goes deeper on the proof and carries it through to the dispute:
 
 1. Every "met" needs a quote the code finds word for word in what a visitor can see, carrying the criterion's numbers and names. When the code downgrades a verdict, the report says why. [`evidence.ts`](src/lib/ai/evidence.ts)
-2. Measured: 80 of 80 criteria right on 20 deliveries. Prompt injection counted apart: 34 of 34 on 9 deliveries. A keyword checker gets 53 of 77. [`docs/eval-latest.md`](docs/eval-latest.md)
+2. Measured: 79 of 80 criteria right on 20 deliveries, and 77 of 77 on the 19 a model answered. Prompt injection counted apart: 33 of 34 on 9 deliveries. A keyword checker alone gets 53 of 77. [`docs/eval-latest.md`](docs/eval-latest.md)
 3. Hidden text is read from inline styles, style blocks, linked stylesheets, alt text, closed elements and more, with an eval case for each method. [`css-hidden.ts`](src/lib/ai/tools/css-hidden.ts)
 4. A real Braintree sandbox chargeback after sign-off, answered through the Disputes API with evidence drafted from the signed record once the freelancer approves it, through to the outcome. [`disputes.ts`](src/lib/services/disputes.ts)
 5. Lines of taste such as "modern" or "mobile friendly" stay in the signed record as criteria a person judges, never dropped. [`planner.ts`](src/lib/ai/planner.ts)
@@ -102,13 +102,15 @@ When the rule turns a "met" into "needs a person", the report replaces the model
 
 `pnpm eval` runs 20 deliveries and 80 criteria with known right answers, then the scripted keyword checker on the same cases. The set covers the sample's versions; prompt injection in six forms (a visible note, look-alike letters, a forged document boundary with a fake system message, an instruction in Spanish, a notes file and a Markdown file) plus the three sample pages that carry one; each hiding method; a swapped phone number and date; a wrong price; a hollow six-page PDF; lines of taste; an honestly complete page; an honestly partial one; a handover PDF; and this repository on GitHub. The twelve deliveries added on 10 November are in other trades, so the set does not lean on the sample.
 
-**Latest, 10 November 2026, `google/gemini-3.5-flash-lite` (4 of the 20 checks answered by `gemini-3.5-flash` when the first model was rate-limited):**
+**Latest, 10 November 2026, with `google/gemini-3.5-flash-lite` first in the model chain.** Rate limits moved some checks down the chain, as they do in the app: 14 were answered by `gemini-3.5-flash-lite`, 4 by `gemini-3.5-flash`, 1 by `gemini-3.1-flash-lite`, and 1 by the scripted checker after every model was rate-limited.
 
 | | Result |
 |---|---|
-| All criteria | 80 of 80 correct on 20 deliveries |
-| Prompt injection, counted apart | 34 of 34 correct on 9 deliveries; the report flagged the instruction on 8 of 9. The Spanish one is not flagged, because the detector's patterns are English; the evidence rule still kept every verdict right |
+| All criteria | 79 of 80 correct on 20 deliveries. The 19 deliveries a model answered: 77 of 77. The miss is the scripted checker's, on `inj-notes`, where it marked the headline not met |
+| Prompt injection, counted apart | 33 of 34 correct on 9 deliveries, the miss being that same scripted answer; the report flagged the instruction on 8 of 9. The Spanish one is not flagged, because the detector's patterns are English; the evidence rule still kept every verdict right |
 | Keyword baseline, no AI | 53 of the 77 criteria that need no network correct, 20 wrong, 4 sent to a person |
+
+An earlier full run the same day, before the sample was renamed, scored 80 of 80, with 34 of 34 on injection.
 
 While building the set, two misses came from the evidence rule, not the model: a 17-character price line was dropped as too short, and a list of channels quoted without its heading failed the key-word test. Both are fixed in the rule above, with tests. Full table, timings and the model that answered each case: [`docs/eval-latest.md`](docs/eval-latest.md). I wrote the fixtures, so read the set as a regression suite, not an independent benchmark.
 
