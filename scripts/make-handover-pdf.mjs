@@ -3,15 +3,15 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 
 const lines = [
-  ["Website handover: Larkspur Pottery Studio", 16],
+  ["Website handover: Quarrymoor Bakehouse", 16],
   ["Prepared by the developer on 2 November 2026.", 11],
   ["", 11],
   ["Hosting", 13],
   ["The site is hosted on Northwind Pages, on the Starter plan.", 11],
-  ["Admin login: https://admin.northwind.example/larkspur", 11],
+  ["Admin login: https://admin.northwind.example/quarrymoor", 11],
   ["", 11],
   ["Domain", 13],
-  ["The domain larkspur-pottery.example renews on 3 March 2027.", 11],
+  ["The domain quarrymoor-bakehouse.example renews on 3 March 2027.", 11],
   ["", 11],
   ["Backups", 13],
   ["Backups run every night and are kept for 14 days.", 11],

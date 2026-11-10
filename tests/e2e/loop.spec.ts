@@ -49,8 +49,8 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   await page.screenshot({ path: `${shots}/00-front.png`, fullPage: true });
   await page.getByRole("button", { name: "Try the live demo" }).click();
   await expect(page.getByText("Demo workspace.")).toBeVisible();
-  await page.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
-  await expect(page.getByRole("heading", { name: "Larkspur Pottery Studio website" })).toBeVisible();
+  await page.getByRole("link", { name: /Quarrymoor Bakehouse website/ }).first().click();
+  await expect(page.getByRole("heading", { name: "Quarrymoor Bakehouse website" })).toBeVisible();
   await page.screenshot({ path: `${shots}/01-project.png`, fullPage: true });
   const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
 
@@ -74,7 +74,7 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   await expect(page.getByText("Evidence report for delivery v1")).toBeVisible();
   await expect(page.getByText("Tampering found on the delivered page")).toBeVisible();
   // Whatever the checker (scripted or a live model) concluded, the hidden start time must not pass.
-  const saturday = page.locator("li", { hasText: "The page lists the Saturday wheel-throwing class" }).last();
+  const saturday = page.locator("li", { hasText: "The page lists the Saturday sourdough class" }).last();
   await expect(saturday.getByText("Met", { exact: true })).toHaveCount(0);
   await page.screenshot({ path: `${shots}/03-report-cheat.png`, fullPage: true });
 
@@ -148,11 +148,11 @@ test("each visitor sees only their own workspace", async ({ browser }) => {
   }
   // The demo starts with the sample loaded, so the loader button is hidden.
   await expect(a.getByRole("button", { name: "Load sample project" })).toHaveCount(0);
-  await a.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
-  await expect(a.getByRole("heading", { name: "Larkspur Pottery Studio website" })).toBeVisible();
+  await a.getByRole("link", { name: /Quarrymoor Bakehouse website/ }).first().click();
+  await expect(a.getByRole("heading", { name: "Quarrymoor Bakehouse website" })).toBeVisible();
   const projectUrl = a.url();
   await b.goto("/dashboard");
-  await expect(b.getByRole("link", { name: /Larkspur Pottery Studio website/ })).toHaveCount(1);
+  await expect(b.getByRole("link", { name: /Quarrymoor Bakehouse website/ })).toHaveCount(1);
   await b.goto(projectUrl);
   await expect(b.getByRole("heading", { name: "This page does not exist" })).toBeVisible();
 });
@@ -162,16 +162,16 @@ test("an operator drafts milestones from a pasted scope, edits them and creates 
   await page.getByRole("button", { name: "Try the live demo" }).click();
   await expect(page.getByText("Demo workspace.")).toBeVisible();
   await page.goto("/projects/new");
-  await page.getByRole("textbox", { name: "Project name" }).fill("Pottery site from the e2e test");
+  await page.getByRole("textbox", { name: "Project name" }).fill("Bakery site from the e2e test");
   await page.getByRole("button", { name: "Use the sample scope" }).click();
   await page.getByRole("button", { name: "Draft milestones" }).click();
   await expect(page.getByText("Milestone 2")).toBeVisible({ timeout: 120_000 });
   // The planner keeps a name the freelancer typed.
-  await expect(page.getByRole("textbox", { name: "Project name" })).toHaveValue("Pottery site from the e2e test");
+  await expect(page.getByRole("textbox", { name: "Project name" })).toHaveValue("Bakery site from the e2e test");
   await expect(page.getByText(/From the scope:/).first()).toBeVisible();
   await page.screenshot({ path: `${process.env.E2E_SHOTS_DIR ?? "test-results/screens"}/10-new-project.png`, fullPage: true });
   await page.getByRole("button", { name: "Save and create client link" }).click();
-  await expect(page.getByRole("heading", { name: "Pottery site from the e2e test" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Bakery site from the e2e test" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Client link" })).toBeVisible();
 });
 
@@ -180,7 +180,7 @@ test("a coding agent works the freelancer's side over MCP, until its token is re
   const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
   await page.goto("/");
   await page.getByRole("button", { name: "Try the live demo" }).click();
-  await page.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
+  await page.getByRole("link", { name: /Quarrymoor Bakehouse website/ }).first().click();
   const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
   const client = await context.newPage();
   await client.goto(shareUrl);
@@ -202,7 +202,7 @@ test("a coding agent works the freelancer's side over MCP, until its token is re
   const agent = await connect();
   const list = (await agent.callTool({ name: "list_milestones", arguments: {} })).structuredContent as { milestones: { id: string; can_submit: boolean }[] };
   const target = list.milestones.find((m) => m.can_submit)!;
-  const sub = await agent.callTool({ name: "submit_delivery", arguments: { milestone_id: target.id, links: [`${baseURL}/samples/larkspur-v2/index.html`], notes: "Submitted by the agent" } });
+  const sub = await agent.callTool({ name: "submit_delivery", arguments: { milestone_id: target.id, links: [`${baseURL}/samples/sample-v2/index.html`], notes: "Submitted by the agent" } });
   expect(sub.isError).toBeFalsy();
   let status = "running";
   let report: { check: { status: string; criteria?: { verdict: string }[] } } | null = null;
@@ -226,7 +226,7 @@ test("a hold that ends before the due date is flagged, and the client renews it"
   await page.goto("/");
   await page.getByRole("button", { name: "Try the live demo" }).click();
   await expect(page.getByText("Demo workspace.")).toBeVisible();
-  await page.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
+  await page.getByRole("link", { name: /Quarrymoor Bakehouse website/ }).first().click();
   const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
   const rail = await railOf(page);
   const client = await context.newPage();

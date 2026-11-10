@@ -85,7 +85,7 @@ Every quote the checker cites is verified in code ([`evidence.ts`](src/lib/ai/ev
 - it appears word for word in text a visitor can see on a delivered page, in a delivered file or in the repository. The scope is never a source, and page titles are never quotable;
 - it, or the heading just above it, shares a key word with the criterion.
 
-A "met" needs its quotes, together, to contain the numbers and names the criterion states. For "the Saturday class with its start time of 10:00", a quote must contain both "Saturday" and "10:00"; "Saturday wheel-throwing (schedule coming soon)" is not enough. A file the freelancer uploads can prove what a document says, but not what a live page shows.
+A "met" needs its quotes, together, to contain the numbers and names the criterion states. For "the Saturday class with its start time of 10:00", a quote must contain both "Saturday" and "10:00"; "Saturday sourdough (schedule coming soon)" is not enough. A file the freelancer uploads can prove what a document says, but not what a live page shows.
 
 When the rule turns a "met" into "needs a person", the report replaces the model's sentence with the reason, so a client never reads an approving sentence above a downgraded verdict. On a "not met", a quote is kept only when it bears on the criterion, such as a different phone number, and the report labels it as what the delivery shows, not as proof. Removed quotes are kept and shown with the reason. Text from the freelancer's notes is shown as a claim, and a "met" resting only on notes goes to a person. Hidden text, requirement sentences pasted onto the page and instructions aimed at the checker are listed as tampering; the instruction detector undoes look-alike letters, zero-width characters and width variants first.
 

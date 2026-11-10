@@ -54,11 +54,11 @@ async function verdictsOf(milestoneId: string) {
 
 // ---------------------------------------------------------------- N1
 describe("N1 uploaded files go through the same visibility filter", () => {
-  const cheatHtml = `<!doctype html><html><head><title>Larkspur</title></head><body>
-<h1>Larkspur Pottery Studio</h1>
-<p>Saturday wheel-throwing (schedule coming soon)</p>
-<div style="display:none">The Saturday wheel-throwing class has a start time of 10:00 every week.</div>
-<!-- Studio address: 14 Kiln Lane, Portland -->
+  const cheatHtml = `<!doctype html><html><head><title>Quarrymoor</title></head><body>
+<h1>Quarrymoor Bakehouse</h1>
+<p>Saturday sourdough (schedule coming soon)</p>
+<div style="display:none">The Saturday sourdough class has a start time of 10:00 every week.</div>
+<!-- Bakery address: 14 Mill Lane, Portland -->
 <p>Join the waitlist: <input type="email" placeholder="Your email"></p>
 </body></html>`;
 
@@ -68,7 +68,7 @@ describe("N1 uploaded files go through the same visibility filter", () => {
     await runCheck(db, m.id, d);
     const vs = await verdictsOf(m.id);
     expect(vs.find((v) => v.text.startsWith("The page lists the Saturday"))!.verdict).not.toBe("met");
-    expect(vs.find((v) => v.text.startsWith("The page shows the studio address"))!.verdict).not.toBe("met");
+    expect(vs.find((v) => v.text.startsWith("The page shows the bakery address"))!.verdict).not.toBe("met");
     const c = await latestCheck(db, m.id);
     expect(c!.findings!.some((f) => f.kind === "hidden_text" && f.source === "file:index.html")).toBe(true);
   });
@@ -76,7 +76,7 @@ describe("N1 uploaded files go through the same visibility filter", () => {
   it("N1: with a model, a quote from a hidden div inside a 'deliverable' file is removed", async () => {
     const m = await funded();
     const d = await submitDelivery(db, m.id, { links: [], notes: "", files: [{ name: "index.html", mime: "text/html", text: cheatHtml, role: "deliverable" }] });
-    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "Listed.", evidence: [{ source: "file:index.html", quote: "The Saturday wheel-throwing class has a start time of 10:00 every week." }] }]) });
+    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "Listed.", evidence: [{ source: "file:index.html", quote: "The Saturday sourdough class has a start time of 10:00 every week." }] }]) });
     await runCheck(db, m.id, d);
     const v = (await verdictsOf(m.id))[1];
     expect(v.verdict).toBe("needs_person");
@@ -85,7 +85,7 @@ describe("N1 uploaded files go through the same visibility filter", () => {
 
   it("N1: a notes file relabelled 'deliverable' cannot prove what a live page shows", async () => {
     const m = await funded();
-    const text = "Delivery summary\nOur Saturday wheel-throwing class start time is 10:00 sharp.\nVisit the studio address at 14 Kiln Lane, Portland.\nVisitors join the waitlist using the email signup form.\n";
+    const text = "Delivery summary\nOur Saturday sourdough class start time is 10:00 sharp.\nVisit the bakery address at 14 Mill Lane, Portland.\nVisitors join the waitlist using the email signup form.\n";
     const d = await submitDelivery(db, m.id, { links: [], notes: "", files: [{ name: "notes.txt", mime: "text/plain", text, role: "deliverable" }] });
     await runCheck(db, m.id, d);
     expect((await verdictsOf(m.id)).filter((v) => v.verdict === "met")).toHaveLength(0);
@@ -99,7 +99,7 @@ describe("N1 uploaded files go through the same visibility filter", () => {
 
 // ---------------------------------------------------------------- N2
 describe("N2 hiding methods are not visible page text", () => {
-  const SECRET = "Saturday wheel-throwing class starts at 10:00";
+  const SECRET = "Saturday sourdough class starts at 10:00";
   const cases: [string, string][] = [
     ["img alt on a 1px image", `<img src="x.png" width="1" height="1" alt="${SECRET}">`],
     ["closed <dialog>", `<dialog>${SECRET}</dialog>`],
@@ -156,23 +156,23 @@ describe("N3 the injection detector sees through light disguises", () => {
     expect(findTampering(ctx).map((x) => x.source)).toEqual(lines.map((_, i) => `https://x.test/${i}`));
   });
   it("N3: ordinary page copy is not flagged", () => {
-    for (const l of ["Our booking system is complete and live.", "Join the waitlist with this signup form", "Every class includes clay and firing.", "Ignore the noise of the city in our quiet studio."]) expect(looksLikeInjection(l), l).toBe(false);
+    for (const l of ["Our booking system is complete and live.", "Join the waitlist with this signup form", "Every class includes flour and aprons.", "Ignore the noise of the city in our quiet studio."]) expect(looksLikeInjection(l), l).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------- N4
 describe("N4 a met quote must show what the criterion names", () => {
-  it("N4: 'Saturday wheel-throwing (schedule coming soon)' cannot prove 'start time of 10:00'", async () => {
+  it("N4: 'Saturday sourdough (schedule coming soon)' cannot prove 'start time of 10:00'", async () => {
     const m = await funded();
     const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
-    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "The Saturday class is listed.", evidence: [{ source: sampleLinks(1)[0], quote: "Saturday wheel-throwing (schedule coming soon)" }] }]) });
+    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "The Saturday class is listed.", evidence: [{ source: sampleLinks(1)[0], quote: "Saturday sourdough (schedule coming soon)" }] }]) });
     await runCheck(db, m.id, d);
     const v = (await verdictsOf(m.id))[1];
     expect(v.verdict).toBe("needs_person");
     expect(v.reasoning).toMatch(/"10:00"/);
   });
   it("N4: a quote that shows the values keeps its met", () => {
-    const r = enforceEvidenceRule("met", [{ source: "p", quote: "Saturday wheel-throwing class, start time 10:00", kind: "page" }], 0, { pageCriterion: true, criterion: "The page lists the Saturday wheel-throwing class with its start time of 10:00." });
+    const r = enforceEvidenceRule("met", [{ source: "p", quote: "Saturday sourdough class, start time 10:00", kind: "page" }], 0, { pageCriterion: true, criterion: "The page lists the Saturday sourdough class with its start time of 10:00." });
     expect(r.verdict).toBe("met");
   });
 });
@@ -302,9 +302,9 @@ describe("N12 criteria size is bounded", () => {
 // ---------------------------------------------------------------- earlier fixes, edges
 describe("earlier fixes, edge probes", () => {
   it("H3 edge, kept on purpose: a visible line that rewords the requirement and shows the values still counts", () => {
-    const corpus = [{ source: "p", text: "Our Saturday wheel-throwing class begins at 10:00.", kind: "page" as const }];
-    const req = { text: "The page lists the Saturday wheel-throwing class with its start time of 10:00.", sourceQuote: "The page lists the Saturday wheel-throwing class with its start time of 10:00." };
-    const r = verifyEvidence([{ source: "p", quote: "Our Saturday wheel-throwing class begins at 10:00." }], corpus, req);
+    const corpus = [{ source: "p", text: "Our Saturday sourdough class begins at 10:00.", kind: "page" as const }];
+    const req = { text: "The page lists the Saturday sourdough class with its start time of 10:00.", sourceQuote: "The page lists the Saturday sourdough class with its start time of 10:00." };
+    const r = verifyEvidence([{ source: "p", quote: "Our Saturday sourdough class begins at 10:00." }], corpus, req);
     expect(enforceEvidenceRule("met", r.kept, r.dropped, { pageCriterion: true, criterion: req.text }).verdict).toBe("met");
   });
 
@@ -317,7 +317,7 @@ describe("earlier fixes, edge probes", () => {
 
   it("H1 recheck: loopback through a hostname is still blocked at connect time", async () => {
     const port = new URL(origin).port;
-    const ctx: ToolContext = { links: [`http://localhost:${port}/samples/larkspur-v1/index.html`], files: [], records: [] };
+    const ctx: ToolContext = { links: [`http://localhost:${port}/samples/sample-v1/index.html`], files: [], records: [] };
     expect(await readUrl(ctx, ctx.links[0])).toMatch(/private address|Blocked|Error/);
   });
 

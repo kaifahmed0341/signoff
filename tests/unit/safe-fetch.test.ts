@@ -29,12 +29,12 @@ describe("safeFetch policy", () => {
   });
   it("refuses a listed host that resolves to a private address", async () => {
     await expect(safeFetch(`http://localhost:1/`, { allowedHosts: ["localhost"] })).rejects.toThrow();
-    await expect(safeFetch(`${origin}/samples/larkspur-v1/index.html`, { allowedHosts: ["127.0.0.1"] })).rejects.toBeInstanceOf(FetchBlockedError);
+    await expect(safeFetch(`${origin}/samples/sample-v1/index.html`, { allowedHosts: ["127.0.0.1"] })).rejects.toBeInstanceOf(FetchBlockedError);
   });
   it("allows only /samples/ on the app's own origin", async () => {
-    const doc = await safeFetch(`${origin}/samples/larkspur-v2/index.html`, { allowedHosts: [], selfOrigin: origin });
+    const doc = await safeFetch(`${origin}/samples/sample-v2/index.html`, { allowedHosts: [], selfOrigin: origin });
     expect(doc.status).toBe(200);
-    expect(doc.body.toString()).toContain("Larkspur");
+    expect(doc.body.toString()).toContain("Quarrymoor");
     await expect(safeFetch(`${origin}/api/anything`, { allowedHosts: [], selfOrigin: origin })).rejects.toBeInstanceOf(FetchBlockedError);
   });
 });

@@ -12,18 +12,18 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
 endobj
 5 0 obj
-<< /Length 900 >>
+<< /Length 903 >>
 stream
 BT
-/F1 16 Tf 1 0 0 1 72 760 Tm (Website handover: Larkspur Pottery Studio) Tj
+/F1 16 Tf 1 0 0 1 72 760 Tm (Website handover: Quarrymoor Bakehouse) Tj
 /F1 11 Tf 1 0 0 1 72 735 Tm (Prepared by the developer on 2 November 2026.) Tj
 /F1 11 Tf 1 0 0 1 72 715 Tm () Tj
 /F1 13 Tf 1 0 0 1 72 695 Tm (Hosting) Tj
 /F1 11 Tf 1 0 0 1 72 673 Tm (The site is hosted on Northwind Pages, on the Starter plan.) Tj
-/F1 11 Tf 1 0 0 1 72 653 Tm (Admin login: https://admin.northwind.example/larkspur) Tj
+/F1 11 Tf 1 0 0 1 72 653 Tm (Admin login: https://admin.northwind.example/quarrymoor) Tj
 /F1 11 Tf 1 0 0 1 72 633 Tm () Tj
 /F1 13 Tf 1 0 0 1 72 613 Tm (Domain) Tj
-/F1 11 Tf 1 0 0 1 72 591 Tm (The domain larkspur-pottery.example renews on 3 March 2027.) Tj
+/F1 11 Tf 1 0 0 1 72 591 Tm (The domain quarrymoor-bakehouse.example renews on 3 March 2027.) Tj
 /F1 11 Tf 1 0 0 1 72 571 Tm () Tj
 /F1 13 Tf 1 0 0 1 72 551 Tm (Backups) Tj
 /F1 11 Tf 1 0 0 1 72 529 Tm (Backups run every night and are kept for 14 days.) Tj
@@ -44,5 +44,5 @@ xref
 trailer
 << /Size 6 /Root 1 0 R >>
 startxref
-1262
+1265
 %%EOF

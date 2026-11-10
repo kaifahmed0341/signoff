@@ -100,8 +100,8 @@ describe("the stylesheet cheat sample, through the read_url tool", () => {
     await readUrl(ctx, link);
     const r = ctx.records[0];
     expect(r.ok).toBe(true);
-    expect(r.quotable).not.toMatch(/10:00|Kiln Lane|AI checker/);
-    expect(r.quotable).toContain("Saturday wheel-throwing (schedule coming soon)");
+    expect(r.quotable).not.toMatch(/10:00|Mill Lane|AI checker/);
+    expect(r.quotable).toContain("Saturday sourdough (schedule coming soon)");
     expect(r.hiddenReasons).toEqual(
       expect.arrayContaining(["negative text indent", "positioned off screen", "clipped", "zero opacity", "zero font size", "text coloured like its background"]),
     );

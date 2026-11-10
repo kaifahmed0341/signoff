@@ -143,9 +143,9 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
     const page = sampleLinks(1)[0];
     const byCriterion: Record<string, object> = {
-      headline: { verdict: "met", reasoning: "Headline is there.", evidence: [{ source: page, quote: "Larkspur Pottery Studio" }] },
+      headline: { verdict: "met", reasoning: "Headline is there.", evidence: [{ source: page, quote: "Quarrymoor Bakehouse" }] },
       // Invented quote: not on the page. Must be dropped and the verdict downgraded.
-      Saturday: { verdict: "met", reasoning: "Saturday class listed.", evidence: [{ source: page, quote: "Saturday wheel-throwing class, start time 10:00" }] },
+      Saturday: { verdict: "met", reasoning: "Saturday class listed.", evidence: [{ source: page, quote: "Saturday sourdough class, start time 10:00" }] },
       address: { verdict: "not_met", reasoning: "No address on the page.", evidence: [] },
       waitlist: { verdict: "met", reasoning: "Signup form present.", evidence: [{ source: "anything", quote: "Join the waitlist with this signup form:" }] },
     };
@@ -181,7 +181,7 @@ describe("AI checker with a model (mocked, deterministic)", () => {
       (n) => {
         explored++;
         if (n === 0) return { type: "tool-call", toolCallId: "t1", toolName: "read_url", input: JSON.stringify({ url: "https://evil.example/exfil" }) };
-        if (n === 1) return { type: "tool-call", toolCallId: "t2", toolName: "read_url", input: JSON.stringify({ url: `${origin}/samples/larkspur-v2/index.html` }) };
+        if (n === 1) return { type: "tool-call", toolCallId: "t2", toolName: "read_url", input: JSON.stringify({ url: `${origin}/samples/sample-v2/index.html` }) };
         return { type: "text", text: "DONE" };
       },
     );
@@ -190,7 +190,7 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     expect(explored).toBeGreaterThanOrEqual(3);
     const calls = await db.select().from(toolCalls).where(eq(toolCalls.checkId, checkId));
     expect(calls.find((c) => c.input.includes("evil.example"))?.output).toMatch(/Blocked/);
-    expect(calls.find((c) => c.input.includes("larkspur-v2"))?.ok).toBe(true);
+    expect(calls.find((c) => c.input.includes("sample-v2"))?.ok).toBe(true);
   });
 
   it("falls back to the scripted checker, with the reason, when the model fails", async () => {
@@ -216,7 +216,7 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     const p = await createSampleProject(db, demo.id);
     const [m] = await projectMilestones(db, p.id);
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
-    const model = mockJudge(() => ({ verdict: "met", reasoning: "ok", evidence: [{ source: "x", quote: "Larkspur Pottery Studio" }] }));
+    const model = mockJudge(() => ({ verdict: "met", reasoning: "ok", evidence: [{ source: "x", quote: "Quarrymoor Bakehouse" }] }));
     setModelForTests({ model: model.model, label: "mock/test" });
     const d1 = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
     await runCheck(db, m.id, d1);
@@ -292,7 +292,7 @@ describe("webhooks and dispute defence", () => {
     expect(r2.outcome).toMatch(/duplicate/);
     const [row] = await milestoneDisputes(db, m.id);
     expect(row.evidencePack).toContain("Robin Client");
-    expect(row.evidencePack).toContain("Larkspur Pottery Studio");
+    expect(row.evidencePack).toContain("Quarrymoor Bakehouse");
     expect(row.evidencePack).not.toContain("—");
   });
 
@@ -336,9 +336,9 @@ describe("the cheat sample", () => {
       label: "mock/test",
       model: mockJudge((criterion) =>
         criterion.includes("Saturday")
-          ? { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Saturday wheel-throwing class, start time 10:00, ends 12:30" }, { source: page, quote: "The page lists the Saturday wheel-throwing class with its start time of 10:00." }] }
+          ? { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Saturday sourdough class, start time 10:00, ends 12:30" }, { source: page, quote: "The page lists the Saturday sourdough class with its start time of 10:00." }] }
           : criterion.includes("address")
-            ? { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Studio address: 14 Kiln Lane, Portland" }] }
+            ? { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Bakery address: 14 Mill Lane, Portland" }] }
             : { verdict: "met", reasoning: "Shown.", evidence: [{ source: page, quote: "Join the waitlist with this signup form:" }] },
       ).model,
     });

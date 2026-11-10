@@ -187,13 +187,13 @@ function HeroCard() {
         <span className="text-sm text-held">held, not charged</span>
       </div>
       <ul className="mt-5 space-y-2 text-sm">
-        <li className="flex gap-3"><span className="text-met font-medium w-16 shrink-0">Met</span> Headline names the studio</li>
+        <li className="flex gap-3"><span className="text-met font-medium w-16 shrink-0">Met</span> Headline names the bakery</li>
         <li className="flex gap-3"><span className="text-met font-medium w-16 shrink-0">Met</span> Waitlist signup form</li>
         <li className="flex gap-3"><span className="text-unmet font-medium w-16 shrink-0">Not met</span> Saturday class start time</li>
-        <li className="flex gap-3"><span className="text-unmet font-medium w-16 shrink-0">Not met</span> Studio address</li>
+        <li className="flex gap-3"><span className="text-unmet font-medium w-16 shrink-0">Not met</span> Bakery address</li>
       </ul>
       <div className="mt-5 rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-        From the delivered page: &ldquo;Saturday wheel-throwing (schedule coming soon)&rdquo;
+        From the delivered page: &ldquo;Saturday sourdough (schedule coming soon)&rdquo;
       </div>
     </div>
   );

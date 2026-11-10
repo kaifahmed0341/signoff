@@ -137,14 +137,14 @@ describe("J2 a downgraded verdict says why and drops the model's approval", () =
   });
 
   it("J2: every downgrade path explains itself", () => {
-    const base = { criterion: "The page shows the studio address: 14 Kiln Lane, Portland.", verdict: "met" as const, reasoning: "Looks complete.", pageCriterion: true };
+    const base = { criterion: "The page shows the bakery address: 14 Mill Lane, Portland.", verdict: "met" as const, reasoning: "Looks complete.", pageCriterion: true };
     const allRemoved = finalizeVerdict({ ...base, kept: [], dropped: [{ source: "p", quote: "x".repeat(25), reason: "hidden from visitors on the page" }] });
     expect(allRemoved.reasoning).toMatch(/all 1 of its quote\(s\) were removed/);
     const noQuote = finalizeVerdict({ ...base, kept: [], dropped: [] });
     expect(noQuote.reasoning).toMatch(/gave no quote/);
-    const fileOnly = finalizeVerdict({ ...base, kept: [{ source: "file:a.html", quote: "Find us at 14 Kiln Lane, Portland", kind: "deliverable_file" }], dropped: [] });
+    const fileOnly = finalizeVerdict({ ...base, kept: [{ source: "file:a.html", quote: "Find us at 14 Mill Lane, Portland", kind: "deliverable_file" }], dropped: [] });
     expect(fileOnly.reasoning).toMatch(/uploaded file/);
-    const notesOnly = finalizeVerdict({ ...base, kept: [{ source: "file:n.txt", quote: "Find us at 14 Kiln Lane, Portland", kind: "notes_file" }], dropped: [] });
+    const notesOnly = finalizeVerdict({ ...base, kept: [{ source: "file:n.txt", quote: "Find us at 14 Mill Lane, Portland", kind: "notes_file" }], dropped: [] });
     expect(notesOnly.reasoning).toMatch(/notes/);
     for (const r of [allRemoved, noQuote, fileOnly, notesOnly]) {
       expect(r.verdict).toBe("needs_person");
@@ -155,7 +155,7 @@ describe("J2 a downgraded verdict says why and drops the model's approval", () =
   it("J2: end to end, the saved verdict carries the reason, not the model's approval", async () => {
     const m = await funded();
     const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
-    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "The Saturday class and its start time are listed in full.", evidence: [{ source: sampleLinks(1)[0], quote: "Saturday wheel-throwing (schedule coming soon)" }] }]) });
+    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "The Saturday class and its start time are listed in full.", evidence: [{ source: sampleLinks(1)[0], quote: "Saturday sourdough (schedule coming soon)" }] }]) });
     await runCheck(db, m.id, d);
     const v = (await verdictsOf(m.id))[1];
     expect(v.verdict).toBe("needs_person");
@@ -170,12 +170,12 @@ describe("J2 a downgraded verdict says why and drops the model's approval", () =
 });
 
 describe("J3 a not-met verdict never shows an unrelated quote as evidence", () => {
-  it("J3: the business name is not kept on 'studio address: not met'", () => {
+  it("J3: the business name is not kept on 'bakery address: not met'", () => {
     const r = finalizeVerdict({
-      criterion: "The page shows the studio address: 14 Kiln Lane, Portland.",
+      criterion: "The page shows the bakery address: 14 Mill Lane, Portland.",
       verdict: "not_met",
       reasoning: "The page does not show an address.",
-      kept: [{ source: "p", quote: "Larkspur Pottery Studio", kind: "page" }],
+      kept: [{ source: "p", quote: "Quarrymoor Bakehouse", kind: "page" }],
       dropped: [],
       pageCriterion: true,
     });
@@ -186,14 +186,14 @@ describe("J3 a not-met verdict never shows an unrelated quote as evidence", () =
 
   it("J3: a swapped phone number or a 'coming soon' line is kept, as what the page shows instead", () => {
     expect(bearsOn("Call us on 0113 496 0132", "The page shows the phone number 0113 496 0123.")).toBe(true);
-    expect(bearsOn("Saturday wheel-throwing (schedule coming soon)", "The page lists the Saturday wheel-throwing class with its start time of 10:00.")).toBe(true);
-    expect(bearsOn("Larkspur Pottery Studio", "The page shows the studio address: 14 Kiln Lane, Portland.")).toBe(false);
+    expect(bearsOn("Saturday sourdough (schedule coming soon)", "The page lists the Saturday sourdough class with its start time of 10:00.")).toBe(true);
+    expect(bearsOn("Quarrymoor Bakehouse", "The page shows the bakery address: 14 Mill Lane, Portland.")).toBe(false);
   });
 
   it("J3: end to end, the saved not-met verdict has no unrelated quote", async () => {
     const m = await funded();
     const d = await submitDelivery(db, m.id, { links: sampleLinks(1), notes: "", files: [] });
-    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c3", verdict: "not_met", reasoning: "No address is shown.", evidence: [{ source: sampleLinks(1)[0], quote: "Larkspur Pottery Studio" }] }]) });
+    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c3", verdict: "not_met", reasoning: "No address is shown.", evidence: [{ source: sampleLinks(1)[0], quote: "Quarrymoor Bakehouse" }] }]) });
     await runCheck(db, m.id, d);
     const v = (await verdictsOf(m.id))[2];
     expect(v.verdict).toBe("not_met");

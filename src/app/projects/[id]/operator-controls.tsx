@@ -134,7 +134,7 @@ export function DeliveryForm({ milestoneId, sampleLinks }: { milestoneId: string
           <div className="flex flex-wrap gap-2">
             <Button type="button" size="sm" variant="outline" onClick={() => sample(sampleLinks.v1, "First version of the landing page.")}>v1, misses two criteria</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => sample(sampleLinks.cheat, "All done, every criterion is on the page.")}>v1 with a cheat</Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => sample(sampleLinks.v2, "Added the Saturday start time and the studio address.")}>v2, complete</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => sample(sampleLinks.v2, "Added the Saturday start time and the bakery address.")}>v2, complete</Button>
           </div>
         </div>
       )}

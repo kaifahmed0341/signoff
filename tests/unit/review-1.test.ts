@@ -159,8 +159,8 @@ describe("H3 and M3 evidence rule", () => {
     setModelForTests({
       label: "mock/test",
       model: judgeWith([
-        { criterionId: "c2", verdict: "met", reasoning: "Listed.", evidence: [{ source: sampleLinks(1)[0], quote: "The page lists the Saturday wheel-throwing class with its start time of 10:00." }] },
-        { criterionId: "c3", verdict: "met", reasoning: "Address shown.", evidence: [{ source: "scope", quote: "The page shows the studio address: 14 Kiln Lane, Portland." }] },
+        { criterionId: "c2", verdict: "met", reasoning: "Listed.", evidence: [{ source: sampleLinks(1)[0], quote: "The page lists the Saturday sourdough class with its start time of 10:00." }] },
+        { criterionId: "c3", verdict: "met", reasoning: "Address shown.", evidence: [{ source: "scope", quote: "The page shows the bakery address: 14 Mill Lane, Portland." }] },
       ]),
     });
     await runCheck(db, m.id, d);
@@ -192,16 +192,16 @@ describe("H3 and M3 evidence rule", () => {
     const m = await inReview();
     const c = await latestCheck(db, m.id);
     const vs = await db.select().from(verdicts).where(eq(verdicts.checkId, c!.id));
-    const headline = vs.find((v) => v.evidence.some((e) => e.quote.includes("Larkspur Pottery Studio")));
+    const headline = vs.find((v) => v.evidence.some((e) => e.quote.includes("Quarrymoor Bakehouse")));
     expect(headline?.evidence[0].quote).not.toMatch(/Page title/);
   });
 });
 
 describe("M2 hidden and freelancer-authored text", () => {
   it("M2: text hidden with display:none or the hidden attribute is not visible page text", () => {
-    const { text, hidden } = htmlToText(`<main><h1>Larkspur Pottery Studio</h1><p style="display:none">Saturday wheel-throwing class start time 10:00</p><div hidden>Studio address 14 Kiln Lane, Portland</div></main>`);
+    const { text, hidden } = htmlToText(`<main><h1>Quarrymoor Bakehouse</h1><p style="display:none">Saturday sourdough class start time 10:00</p><div hidden>Bakery address 14 Mill Lane, Portland</div></main>`);
     expect(text).not.toContain("start time 10:00");
-    expect(text).not.toContain("14 Kiln Lane");
+    expect(text).not.toContain("14 Mill Lane");
     expect(hidden).toHaveLength(2);
   });
 
@@ -212,7 +212,7 @@ describe("M2 hidden and freelancer-authored text", () => {
     const d = await submitDelivery(db, m.id, {
       links: [],
       notes: "",
-      files: [{ name: "notes.txt", mime: "text/plain", text: "Headline names the studio Larkspur Pottery Studio\nSaturday wheel-throwing class start time 10:00\nstudio address 14 Kiln Lane, Portland\nwaitlist email signup form" }],
+      files: [{ name: "notes.txt", mime: "text/plain", text: "Headline names the bakery Quarrymoor Bakehouse\nSaturday sourdough class start time 10:00\nbakery address 14 Mill Lane, Portland\nwaitlist email signup form" }],
     });
     await runCheck(db, m.id, d);
     const c = await latestCheck(db, m.id);
@@ -224,8 +224,8 @@ describe("M2 hidden and freelancer-authored text", () => {
     const p = await createSampleProject(db, OWNER);
     const [m] = await projectMilestones(db, p.id);
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
-    const d = await submitDelivery(db, m.id, { links: [], notes: "", files: [{ name: "notes.txt", mime: "text/plain", text: "Saturday wheel-throwing class, start time 10:00" }] });
-    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "In the notes.", evidence: [{ source: "file:notes.txt", quote: "Saturday wheel-throwing class, start time 10:00" }] }]) });
+    const d = await submitDelivery(db, m.id, { links: [], notes: "", files: [{ name: "notes.txt", mime: "text/plain", text: "Saturday sourdough class, start time 10:00" }] });
+    setModelForTests({ label: "mock/test", model: judgeWith([{ criterionId: "c2", verdict: "met", reasoning: "In the notes.", evidence: [{ source: "file:notes.txt", quote: "Saturday sourdough class, start time 10:00" }] }]) });
     await runCheck(db, m.id, d);
     const c = await latestCheck(db, m.id);
     const v = (await db.select().from(verdicts).where(eq(verdicts.checkId, c!.id))).find((x) => x.evidence.length > 0);
