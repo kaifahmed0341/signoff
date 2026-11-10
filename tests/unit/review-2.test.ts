@@ -217,7 +217,8 @@ describe("N6 fresh workspaces do not get fresh budgets", () => {
     expect(again.ok).toBe(false);
   });
   it("N6: one address can start a limited number of workspaces a day", async () => {
-    for (let i = 0; i < 8; i++) await createDemoWorkspace(db, Date.now(), "same-address");
+    for (let i = 0; i < 25; i++) await createDemoWorkspace(db, Date.now(), "same-address");
+    await expect(createDemoWorkspace(db, Date.now(), "same-address")).rejects.toThrow(/00:00 UTC/);
     await expect(createDemoWorkspace(db, Date.now(), "same-address")).rejects.toBeInstanceOf(WorkspaceLimitError);
     await expect(createDemoWorkspace(db, Date.now(), "another-address")).resolves.toBeTruthy();
   });

@@ -10,12 +10,13 @@ export function limits(kind: UsageKind): { perWorkspace: number; perAddress: num
   switch (kind) {
     case "ai_check":
       return { perWorkspace: e.LIMIT_AI_CHECKS_PER_WORKSPACE, perAddress: e.LIMIT_AI_CHECKS_PER_ADDRESS, global: e.LIMIT_AI_CHECKS_GLOBAL };
+    // Judges may share one office address, so an address gets ten workspaces' worth (never more than the global cap).
     case "ai_plan":
-      return { perWorkspace: e.LIMIT_AI_PLANS_PER_WORKSPACE, perAddress: e.LIMIT_AI_PLANS_PER_WORKSPACE * 3, global: e.LIMIT_AI_PLANS_GLOBAL };
+      return { perWorkspace: e.LIMIT_AI_PLANS_PER_WORKSPACE, perAddress: Math.min(e.LIMIT_AI_PLANS_PER_WORKSPACE * 10, e.LIMIT_AI_PLANS_GLOBAL), global: e.LIMIT_AI_PLANS_GLOBAL };
     case "ai_note":
-      return { perWorkspace: e.LIMIT_AI_NOTES_PER_WORKSPACE, perAddress: e.LIMIT_AI_NOTES_PER_WORKSPACE * 3, global: e.LIMIT_AI_NOTES_GLOBAL };
+      return { perWorkspace: e.LIMIT_AI_NOTES_PER_WORKSPACE, perAddress: Math.min(e.LIMIT_AI_NOTES_PER_WORKSPACE * 10, e.LIMIT_AI_NOTES_GLOBAL), global: e.LIMIT_AI_NOTES_GLOBAL };
     case "fetch":
-      return { perWorkspace: e.LIMIT_FETCHES_PER_WORKSPACE, perAddress: e.LIMIT_FETCHES_PER_WORKSPACE * 3, global: e.LIMIT_FETCHES_GLOBAL };
+      return { perWorkspace: e.LIMIT_FETCHES_PER_WORKSPACE, perAddress: Math.min(e.LIMIT_FETCHES_PER_WORKSPACE * 10, e.LIMIT_FETCHES_GLOBAL), global: e.LIMIT_FETCHES_GLOBAL };
   }
 }
 
@@ -26,6 +27,21 @@ const LABEL: Record<UsageKind, string> = { fetch: "page reads", ai_plan: "AI dra
 
 export function today(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 10);
+}
+
+/** Start of the current UTC day; every daily cap resets then. */
+export function startOfDayUtc(now = Date.now()): number {
+  const d = new Date(now);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/** "the limit resets at 00:00 UTC, in 5 hours" (or "in 40 minutes"). */
+export function resetPhrase(now = Date.now()): string {
+  const ms = startOfDayUtc(now) + 86_400_000 - now;
+  const hours = Math.floor(ms / 3_600_000);
+  const minutes = Math.max(1, Math.ceil((ms % 3_600_000) / 60_000));
+  const when = hours >= 1 ? `${hours} hour${hours === 1 ? "" : "s"}` : `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `the limit resets at 00:00 UTC, in ${when}`;
 }
 
 async function bump(db: DB, key: string, day: string, by: number): Promise<number> {
@@ -64,16 +80,16 @@ export async function consume(db: DB, workspace: { id: string; kind: string; ipH
 
   if (demo) {
     const used = await read(db, keys.ws);
-    if (used >= perWorkspace) return { ok: false, reason: `This demo workspace has used its ${perWorkspace} ${label} for today` };
-    if (keys.ip && (await read(db, keys.ip)) >= perAddress) return { ok: false, reason: `Demo workspaces from this network have used their ${perAddress} ${label} for today` };
+    if (used >= perWorkspace) return { ok: false, reason: `This demo workspace has used its ${perWorkspace} ${label} for today (${resetPhrase(now)})` };
+    if (keys.ip && (await read(db, keys.ip)) >= perAddress) return { ok: false, reason: `Demo workspaces from this network have used their ${perAddress} ${label} for today (${resetPhrase(now)})` };
     if (kind === "ai_check" && used > 0 && (await read(db, keys.global)) >= Math.floor(global * (1 - FIRST_VISIT_RESERVE))) {
-      return { ok: false, reason: "Most of today's shared AI budget is used, and what is left is kept for first-time visitors" };
+      return { ok: false, reason: `Most of today's shared AI budget is used, and what is left is kept for first-time visitors (${resetPhrase(now)})` };
     }
   }
   const g = await bump(db, keys.global, day, 1);
   if (g > global) {
     await bump(db, keys.global, day, -1);
-    return { ok: false, reason: `The daily limit of ${global} ${label} for this server is used up` };
+    return { ok: false, reason: `The daily limit of ${global} ${label} for this server is used up (${resetPhrase(now)})` };
   }
   if (demo) {
     await bump(db, keys.ws, day, 1);

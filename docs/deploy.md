@@ -23,13 +23,13 @@ Public demo: https://signoff-iota.vercel.app (health: https://signoff-iota.verce
 | `DEMO_MODE` | for a public demo | `true`: every visitor gets a private workspace with one click, and passcode sign-in is off unless you set your own passcode. |
 | `OPERATOR_PASSCODE` | for a self-hosted install | Your passcode. A production server refuses the public default unless `DEMO_MODE=true`. |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | for the AI checker | A Gemini API key. Without it the scripted checker runs, and every report says so. |
-| `GOOGLE_MODEL`, `GOOGLE_FALLBACK_MODELS` | no | Defaults: `gemini-3.5-flash`, then `gemini-3.5-flash-lite,gemini-3.1-flash-lite` when the main model is rate-limited. |
+| `GOOGLE_MODEL`, `GOOGLE_FALLBACK_MODELS` | no | Defaults: `gemini-3.5-flash-lite`, then `gemini-3.5-flash,gemini-3.1-flash-lite` when the main model is rate-limited. |
 | `ANTHROPIC_API_KEY`, `AI_PROVIDER` | no | Use Claude instead: `AI_PROVIDER=anthropic`. |
 | `BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY` | for real payments | Braintree sandbox keys. Without them the app uses the built-in test rail and says so in the header and on the client page. |
 | `BRAINTREE_MERCHANT_ACCOUNT_ID` | no | A specific merchant account, for a non-default currency. |
 | `CURRENCY` | no | Default `USD`. Match the Braintree merchant account. |
 | `DEMO_VIDEO_URL` | no | Shows a "Watch the demo" button on the front page. |
-| `LIMIT_*` | no | Daily caps. Defaults: per demo workspace 15 AI checks, 10 AI drafts, 10 AI change notes, 150 page reads; per visitor address 40 AI checks and 8 new workspaces; for the whole server 400 checks, 300 drafts, 150 notes, 5,000 reads. The last fifth of the day's checks is kept for first-time visitors. Keep the global check cap under your model provider's daily quota. |
+| `LIMIT_*` | no | Daily caps. Defaults: per demo workspace 15 AI checks, 10 AI drafts, 10 AI change notes, 150 page reads; per visitor address 120 AI checks and 25 new workspaces (judges may share one office address), and ten workspaces' worth of drafts, notes and reads; for the whole server 400 checks, 300 drafts, 150 notes, 5,000 reads. The last fifth of the day's checks is kept for first-time visitors. Every cap resets at 00:00 UTC, and a visitor who hits one is told which cap and when it resets. Keep the global check cap under your model provider's daily quota. |
 | `GITHUB_TOKEN` | no | Raises GitHub rate limits. Use a token with no scopes; it is only sent for repositories already confirmed public. |
 
 ## Steps with the Vercel CLI
@@ -73,4 +73,14 @@ The handler verifies every signature with the Braintree SDK, deduplicates events
 
 ## Gemini quotas
 
-The Gemini free tier allows about 5 requests a minute per model. A check uses one model call, plus a few more only when the delivery links to further pages or is a repository. When a model is rate-limited the checker waits if Google asks for a short pause, then tries the next model in `GOOGLE_FALLBACK_MODELS`, and only then falls back to the scripted checker, saying why on the report. For a public demo that many people use at once, a paid Gemini key avoids the fallback.
+On the free tier this project's key allows 500 requests a day and 15 a minute on each of `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite`, and 20 a day on `gemini-3.5-flash`. That is why the lite model is the default. A check uses one model call, plus a few more only when the delivery links to further pages or is a repository. When a model is rate-limited the checker waits if Google asks for a short pause, then tries the next model in `GOOGLE_FALLBACK_MODELS`, and only then falls back to the scripted checker, saying why on the report. The global cap of 400 checks a day keeps the demo inside the two lite models' combined quota with room for drafts and change notes.
+
+## Keep alive through judging
+
+Judging runs from 1 to 15 December 2026, until 08:00 Pacific on the 15th. Until then these must stay alive and unchanged:
+
+- the Vercel project `signoff` and its production deployment at https://signoff-iota.vercel.app, with the same environment variables;
+- the Turso database in `DATABASE_URL` (check the free plan's rules on inactive databases, and open the app at least weekly);
+- the Gemini key in `GOOGLE_GENERATIVE_AI_API_KEY`, and the Braintree sandbox keys once they are set.
+
+Do not rotate a key, rename the project or deploy a breaking change to `main` in that window. Check https://signoff-iota.vercel.app/api/health reports `"status":"ok"`.

@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { env } from "@/lib/env";
 import { currentWorkspace } from "@/lib/web/auth";
 import { startDemo } from "./actions";
+import { workspaceLimitMessage } from "@/lib/services/workspaces";
 
 export const dynamic = "force-dynamic";
 
@@ -83,7 +84,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ l
             )}
             {limit === "workspaces" && !workspace && (
               <p className="mt-3 text-sm text-amber-800 dark:text-amber-300" role="status">
-                This network has started {e.LIMIT_WORKSPACES_PER_ADDRESS} demo workspaces today. Open the demo in the browser you used before, or try again tomorrow.
+                {workspaceLimitMessage()}
               </p>
             )}
           </div>

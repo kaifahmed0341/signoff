@@ -98,3 +98,44 @@ describe("exploration decision", () => {
     expect(needsExploration(base([{ tool: "read_url", input: {}, source: "https://site.example/", output: "Hello\nOther (https://elsewhere.example/x)", ok: true }]))).toBe(false);
   });
 });
+
+describe("judging-period limits", () => {
+  it("one office address can start 25 workspaces and run 120 AI checks a day by default", async () => {
+    const { limits } = await import("@/lib/services/usage");
+    const { setEnvForTests } = await import("@/lib/env");
+    setEnvForTests({}); // the defaults, as on the host
+    expect(env().LIMIT_WORKSPACES_PER_ADDRESS).toBeGreaterThanOrEqual(25);
+    expect(limits("ai_check").perAddress).toBeGreaterThanOrEqual(120);
+    expect(limits("ai_check").global).toBe(400);
+  });
+
+  it("says when a cap resets, in plain words", async () => {
+    const { resetPhrase } = await import("@/lib/services/usage");
+    const t = Date.UTC(2026, 11, 3, 19, 0, 0);
+    expect(resetPhrase(t)).toBe("the limit resets at 00:00 UTC, in 5 hours");
+    expect(resetPhrase(Date.UTC(2026, 11, 3, 23, 45, 0))).toBe("the limit resets at 00:00 UTC, in 15 minutes");
+    const ws = await createDemoWorkspace(db, Date.now(), "addr");
+    for (let i = 0; i < 15; i++) await consume(db, ws, "ai_check");
+    const r = await consume(db, ws, "ai_check");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/resets at 00:00 UTC, in \d+ (hours?|minutes?)/);
+  });
+});
+
+describe("safety model", () => {
+  it("no file under src/lib/ai imports the payment rail or a payment SDK", async () => {
+    const { readdir, readFile } = await import("node:fs/promises");
+    const path = await import("node:path");
+    const files: string[] = [];
+    const walk = async (dir: string) => {
+      for (const e of await readdir(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) await walk(p);
+        else if (/\.tsx?$/.test(e.name)) files.push(p);
+      }
+    };
+    await walk("src/lib/ai");
+    expect(files.length).toBeGreaterThan(5);
+    for (const f of files) expect(await readFile(f, "utf8"), f).not.toMatch(/from\s+["'](?:[./]+|@\/lib\/)payments|from\s+["']braintree/);
+  });
+});

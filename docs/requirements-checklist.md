@@ -15,13 +15,13 @@ PayPal does not open accounts in Pakistan, where the builder lives, so PayPal RE
 | Requirement | Status | Where |
 |---|---|---|
 | Integrates the PayPal developer platform using the free sandbox | Partly met | Braintree rail in `src/lib/payments/braintree-rail.ts`; live checks in `tests/unit/live-braintree.test.ts`. **Not yet run against the Braintree sandbox: keys pending.** The hosted demo runs on the test rail until then and says so. |
-| Integrates an AI tool, model or platform | Met | Gemini (default) and Claude through the Vercel AI SDK, `src/lib/ai/`. Live Gemini evaluation: 23 of 23 correct, `docs/eval-latest.md` |
+| Integrates an AI tool, model or platform | Met | Gemini (default) and Claude through the Vercel AI SDK, `src/lib/ai/`. Live Gemini evaluation: 31 of 31 correct on 8 deliveries, `docs/eval-latest.md` |
 | PayPal integration central to the project | Met | Holds, release, partial release, void, expiry, webhooks, reconcile, dispute evidence: README "Payment rail" |
-| AI meaningful, not decorative | Met | Planner with verified citations; checker agent with tools; evidence rule enforced in code; tampering findings; change-note drafting |
+| AI meaningful, not decorative | Met | Planner with verified citations; checker agent with read-only tools; evidence rule enforced in code; tampering findings; change-note drafting. Lint forbids the AI code from importing the payment rail |
 | Working prototype | Met | Live demo (README); `pnpm dev`; Playwright tests in `tests/e2e/loop.spec.ts` |
 | Sufficiently documented | Met | `README.md`, `docs/deploy.md`, `docs/eval-latest.md` |
-| Newly created during the submission period | Met | Repository history starts 9 November 2026 |
-| Third-party SDKs used under their terms | Met | Braintree SDKs (MIT), AI SDK (Apache-2.0), AG Grid Community (MIT), ipaddr.js (MIT) |
+| Newly created during the submission period | Met | A new project, started 9 November 2026; the first commit is `cb2c029` on that day. Stated at the top of the README |
+| Third-party SDKs used under their terms | Met | Braintree SDKs (MIT), AI SDK (Apache-2.0), AG Grid Community (MIT), ipaddr.js (MIT). The Gemini free tier may use prompts to improve Google's products, so the public demo asks visitors not to paste real client documents |
 | Installs and runs as depicted | Met on the test rail; Partly met on the sandbox | As in the first row |
 
 ## Submission requirements
@@ -39,14 +39,15 @@ PayPal does not open accounts in Pakistan, where the builder lives, so PayPal RE
 | Video shows the project working on its device | Open | A later session |
 | No third-party trademarks or copyrighted material without permission | Met in the app | The sample business is fictional; no logos beyond what Braintree's Drop-in renders; one plain text line names Braintree and PayPal |
 | English | Met | All materials |
-| Testing access free of charge until judging ends | Met | Public demo with no sign-up; local run with no keys |
+| No harmful code | Met | The cheat pages in `public/samples/` are labelled test fixtures: they address an instruction to Signoff's own checker on purpose, to show it is caught (README, "Architecture") |
+| Testing access free of charge until judging ends | Met | Public demo with no sign-up; local run with no keys. Per-address caps (25 workspaces, 120 AI checks a day) leave room for judges on one office address; what must stay alive through 15 December is in `docs/deploy.md`, "Keep alive through judging" |
 | Test credentials or sandbox details | Met | README: no sign-up on the demo, local passcode, sandbox signup, test cards |
 
 ## Judging criteria
 
 | Criterion | How Signoff addresses it |
 |---|---|
-| Technological implementation | Authorization, release, partial release, void, expiry, signed webhooks, reconcile that flags mismatches, Disputes API; claim states so racing clicks cannot split app and rail; an AI agent with read-only tools and code-verified evidence; a 23-case evaluation; unit, regression, browser and live tests |
+| Technological implementation | Authorization, release, partial release, void, expiry, signed webhooks, reconcile that flags mismatches, Disputes API; claim states so racing clicks cannot split app and rail; an AI agent with read-only tools and code-verified evidence; a 31-criterion evaluation on 8 deliveries; unit, regression, browser and live tests |
 | Design | Front page, operator console, client page that works at phone width, evidence report with removed quotes and tampering findings, one-view dispute story, receipt, AG Grid ledger and audit timeline |
 | Potential impact | Freelancers and small agencies who lose deposits or chase invoices, with a sourced number on the front page; an honest statement of the trust model and what a production version would add |
 | Innovation | Acceptance decided by evidence a client can read, with quotes the AI cannot invent or hide, and the same signed record reused to defend chargebacks |
@@ -57,6 +58,6 @@ PayPal does not open accounts in Pakistan, where the builder lives, so PayPal RE
 - **AG Grid** (Community): the dashboard ledger and the audit timeline, themed, with custom cell renderers, quick filter and pagination. The AG Grid prize page asks for polish such as custom widgets and theming and mentions AG Studio and its agent framework; we did not adopt AG Studio.
 - **Render**: not used. The demo is hosted on Vercel with a Turso database.
 
-## Security review 1
+## Security reviews
 
-All 17 findings of the first external review are answered in the final report of the phase-2 build. Every high and medium finding has a regression test in `tests/unit/review-1.test.ts`, named by finding id.
+Two external reviews read the repository and the hosted demo (at `b8afbfc` and `3121fa1`). Every high and medium finding of both has a regression test, named by finding id, in `tests/unit/review-1.test.ts` and `tests/unit/review-2.test.ts`. Findings not fixed are listed in the README under "Known limits".
