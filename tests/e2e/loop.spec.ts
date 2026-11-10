@@ -309,3 +309,15 @@ test("a chargeback after sign-off works on a project the freelancer wrote from s
   await client.goto(shareUrl);
   await expect(client.getByText("It was decided for the freelancer, so the payment stands.")).toBeVisible();
 });
+
+test("a visitor over a workspace cap gets a labelled, read-only finished run", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Proof of delivery for services." })).toBeVisible();
+  await page.getByRole("link", { name: "See a finished run" }).click();
+  await expect(page.getByText("Read-only: a finished run, not a live workspace.")).toBeVisible();
+  await page.goto("/finished-run?limit=workspaces");
+  await expect(page.getByText(/New workspaces open again at 00:00 UTC/)).toBeVisible();
+  const img = page.getByRole("img", { name: "6. A chargeback, answered from the record" });
+  await img.scrollIntoViewIfNeeded();
+  await expect.poll(() => img.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+});
