@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { eq } from "drizzle-orm";
 import { MockLanguageModelV4 } from "ai/test";
-import { auditEvents, checks, milestones, verdicts, toolCalls, disputes } from "@/lib/db/schema";
+import { auditEvents, checks, fakeTransactions, milestones, verdicts, toolCalls, disputes } from "@/lib/db/schema";
 import { STALE_CHECK_MS, draftChangeNote, failStaleChecks, runCheck } from "@/lib/ai/checker";
 import { setModelForTests } from "@/lib/ai/model";
 import { createSampleProject, sampleLinks } from "@/lib/sample";
@@ -197,7 +197,7 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     const m = await firstMilestone();
     await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
     const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
-    const model = new MockLanguageModelV4({ doGenerate: async () => { throw new Error("upstream 503"); } });
+    const model = new MockLanguageModelV4({ doGenerate: async () => { throw new Error("upstream returned invalid JSON"); } });
     setModelForTests({ model, label: "mock/test" });
     await runCheck(db, m.id, d);
     const check = await latestCheck(db, m.id);
@@ -543,5 +543,90 @@ describe("hold expiry and renewal", () => {
   it("there is nothing to renew before funding or after release", async () => {
     const m = await firstMilestone();
     await expect(renewHold(db, rail, m.id, { nonce: FAKE_NONCES.card })).rejects.toThrow(/no live hold/);
+  });
+});
+
+describe("review 3: concurrent money paths", () => {
+  /** Wraps a rail and holds one method until the test opens the gate. */
+  function gated(inner: FakeRail, method: "release" | "authorize" | "void") {
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    let entered!: () => void;
+    const reached = new Promise<void>((r) => (entered = r));
+    const proxy = new Proxy(inner, {
+      get(target, prop, recv) {
+        const v = Reflect.get(target, prop, recv);
+        if (prop === method)
+          return async (...args: unknown[]) => {
+            entered();
+            await gate;
+            return (v as (...a: unknown[]) => Promise<unknown>).apply(target, args);
+          };
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+    return { rail: proxy as unknown as FakeRail, open, reached };
+  }
+
+  it("F3: two fund requests at once place one hold, and the other is refused before it reaches Braintree", async () => {
+    const m = await firstMilestone();
+    const res = await Promise.allSettled([fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card }), fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card })]);
+    expect(res.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const live = (await db.select().from(fakeTransactions)).filter((t) => t.status === "authorized");
+    expect(live).toHaveLength(1);
+    expect(live[0].id).toBe((await getMilestone(db, m.id)).transactionId);
+  });
+
+  it("F2: a sign-off that lands while a renewal is placing its hold wins, and the renewal voids its own new hold", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    const oldTxn = (await getMilestone(db, m.id)).transactionId!;
+    const g = gated(rail, "authorize");
+    const renewal = renewHold(db, g.rail, m.id, { nonce: FAKE_NONCES.card });
+    await g.reached;
+    await acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
+    g.open();
+    await expect(renewal).rejects.toThrow(/changed while the hold was being renewed/);
+    const after = await getMilestone(db, m.id);
+    expect(after.state).toBe("released");
+    expect(after.transactionId).toBe(oldTxn);
+    expect((await rail.getHold(oldTxn)).status).not.toBe("voided");
+    const live = (await db.select().from(fakeTransactions)).filter((t) => t.status === "authorized");
+    expect(live).toHaveLength(0);
+  });
+
+  it("F2: a sign-off read before a renewal swapped the hold cannot claim the milestone, and a renewal never voids a released payment", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    const stale = await getMilestone(db, m.id);
+    await renewHold(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const { applyEvent } = await import("@/lib/services/milestones");
+    await expect(applyEvent(db, stale, "CLAIM_RELEASE", { claimedFrom: "in_review", claimedAt: new Date() })).rejects.toThrow(/changed while you were acting/);
+    // And the renewal's void re-reads first: a payment already released at Braintree is left alone.
+    const m2 = await getMilestone(db, m.id);
+    await rail.release(m2.transactionId!);
+    const g = gated(rail, "void");
+    const renewal = renewHold(db, g.rail, m.id, { nonce: FAKE_NONCES.card });
+    g.open();
+    await renewal.catch(() => {});
+    expect((await rail.getHold(m2.transactionId!)).status).toBe("submitted_for_settlement");
+  });
+
+  it("F4: a hold past its end date that Braintree still calls authorized is voided before it is marked expired", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const first = (await getMilestone(db, m.id)).transactionId!;
+    await db.update(milestones).set({ authExpiresAt: new Date(Date.now() - 60_000) }).where(eq(milestones.id, m.id));
+    const r = await reconcileMilestone(db, rail, m.id);
+    expect(r.action).toBe("hold expired");
+    expect((await rail.getHold(first)).status).toBe("voided");
+    expect((await getMilestone(db, m.id)).transactionStatus).toBe("voided");
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const live = (await db.select().from(fakeTransactions)).filter((t) => t.status === "authorized");
+    expect(live).toHaveLength(1);
   });
 });

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { DB } from "../db";
 import {
   checks,
@@ -130,7 +130,8 @@ export async function applyEvent(
   const res = await db
     .update(milestones)
     .set({ ...patch, state: to, updatedAt: new Date() })
-    .where(and(eq(milestones.id, m.id), eq(milestones.state, from)));
+    // The state and the transaction both must be as read: a hold renewed in between is a conflict too.
+    .where(and(eq(milestones.id, m.id), eq(milestones.state, from), m.transactionId ? eq(milestones.transactionId, m.transactionId) : isNull(milestones.transactionId)));
   if (res.rowsAffected !== 1) throw new ServiceError("This milestone changed while you were acting on it. Reload and try again.", 409);
   return { ...m, ...patch, state: to };
 }
@@ -205,7 +206,12 @@ export async function fundMilestone(
   const m = await getMilestone(db, milestoneId);
   if (!canTransition(m.state as MilestoneState, "AUTHORIZE")) throw new ServiceError(`This milestone is ${m.state} and cannot be funded`, 409);
   const attempt = m.fundingAttempt + 1;
-  await db.update(milestones).set({ fundingAttempt: attempt }).where(eq(milestones.id, m.id));
+  // Claim this funding attempt first, so two requests at once cannot both place a hold.
+  const claim = await db
+    .update(milestones)
+    .set({ fundingAttempt: attempt })
+    .where(and(eq(milestones.id, m.id), eq(milestones.fundingAttempt, m.fundingAttempt), eq(milestones.state, m.state)));
+  if (claim.rowsAffected !== 1) throw new ServiceError("This milestone is already being funded. Reload to see the hold.", 409);
   let hold: Hold;
   try {
     hold = await rail.authorize({
@@ -238,15 +244,22 @@ export async function fundMilestone(
     await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "hold.captured_not_held", message: attention, data: { transactionId: hold.transactionId, status: hold.status, rail: rail.mode } });
     throw new ServiceError("That card was charged at once instead of held, and the charge could not be voided automatically. The freelancer has been told.", 402);
   }
-  const next = await applyEvent(db, { ...m, fundingAttempt: attempt }, "AUTHORIZE", {
-    transactionId: hold.transactionId,
+  let next: Milestone;
+  try {
+    next = await applyEvent(db, { ...m, fundingAttempt: attempt }, "AUTHORIZE", {
+      transactionId: hold.transactionId,
     transactionStatus: hold.status,
     paymentInstrument: hold.instrument,
     payerLabel: hold.payerLabel,
     heldCents: hold.amountCents,
     authorizedAt: new Date(hold.createdAt ?? Date.now()),
-    authExpiresAt: hold.authorizationExpiresAt ? new Date(hold.authorizationExpiresAt) : null,
-  });
+      authExpiresAt: hold.authorizationExpiresAt ? new Date(hold.authorizationExpiresAt) : null,
+    });
+  } catch (err) {
+    // The milestone moved on without this hold: release it rather than leave it on the card.
+    await rail.void(hold.transactionId).catch(() => {});
+    throw err;
+  }
   await audit(db, {
     projectId: m.projectId,
     milestoneId: m.id,
@@ -312,7 +325,8 @@ export async function renewHold(
   }
   let oldVoided = false;
   try {
-    oldVoided = (await rail.void(old)).status === "voided";
+    // Re-read first: void only a hold that is still just a hold, never a payment already released.
+    if ((await rail.getHold(old)).status === "authorized") oldVoided = (await rail.void(old)).status === "voided";
   } catch {
     oldVoided = false;
   }
@@ -538,6 +552,7 @@ export async function reconcileMilestone(db: DB, rail: PaymentRail, milestoneId:
   if (!m.transactionId) return { milestoneId, local: m.state, remote: null, action: "no hold" };
   const hold = await rail.getHold(m.transactionId);
   const remote = remoteOutcome(hold.status);
+  let remoteStatus = hold.status;
   const state = m.state as MilestoneState;
   let action = "in sync";
   let attention: string | null = null;
@@ -567,15 +582,28 @@ export async function reconcileMilestone(db: DB, rail: PaymentRail, milestoneId:
     attention = `This milestone was declined here, but Braintree reports the transaction as ${hold.status}. The client may have been charged.`;
   } else if (isHoldActive(state) && (remote === "expired" || holdHealth(Date.now(), m.authExpiresAt?.getTime()) === "expired")) {
     if (canTransition(state, "EXPIRE")) {
-      m = await applyEvent(db, m, "EXPIRE", { transactionStatus: hold.status });
-      action = "hold expired";
+      // Braintree flips an authorization to expired only when its batch runs; until then it can still be
+      // captured. Void it before calling it expired, so a re-fund never leaves two live holds.
+      let gone = remote === "expired";
+      if (!gone) {
+        try {
+          gone = (await rail.void(m.transactionId!)).status === "voided";
+        } catch {
+          gone = false;
+        }
+      }
+      if (gone) {
+        if (remote !== "expired") remoteStatus = "voided";
+        m = await applyEvent(db, m, "EXPIRE", { transactionStatus: remoteStatus });
+        action = "hold expired";
+      } else attention = `The hold passed its end date here, but Braintree still reports it as ${hold.status} and the void failed. Check the Braintree control panel.`;
     }
   } else if (isHoldActive(state) && remote !== "held") {
     attention = `The hold is active here, but Braintree reports the transaction as ${hold.status}.`;
   }
 
   const patch: Partial<Milestone> = {};
-  if (hold.status !== m.transactionStatus) patch.transactionStatus = hold.status;
+  if (remoteStatus !== m.transactionStatus) patch.transactionStatus = remoteStatus;
   if ((attention ?? null) !== (m.attention ?? null)) patch.attention = attention;
   if (Object.keys(patch).length) await db.update(milestones).set(patch).where(eq(milestones.id, m.id));
   if (attention) action = `needs attention: ${attention}`;
