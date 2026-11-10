@@ -2,7 +2,7 @@
 
 Signoff runs on any Node host. These are the exact steps for Vercel with a hosted libSQL database (Turso), which is how the public demo runs.
 
-Public demo: https://signoff-iota.vercel.app (health: https://signoff-iota.vercel.app/api/health). It runs on Vercel with a Turso database in AWS US East, Gemini, and the test rail until Braintree sandbox keys are added.
+Public demo: https://signoff-iota.vercel.app (health: https://signoff-iota.vercel.app/api/health). It runs on Vercel with a Turso database in AWS US East, Gemini, and the Braintree sandbox (since 10 November 2026).
 
 ## What the app needs from the host
 
@@ -27,6 +27,8 @@ Public demo: https://signoff-iota.vercel.app (health: https://signoff-iota.verce
 | `ANTHROPIC_API_KEY`, `AI_PROVIDER` | no | Use Claude instead: `AI_PROVIDER=anthropic`. |
 | `BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY` | for real payments | Braintree sandbox keys. Without them the app uses the built-in test rail and says so in the header and on the client page. |
 | `BRAINTREE_MERCHANT_ACCOUNT_ID` | no | A specific merchant account, for a non-default currency. |
+| `BRAINTREE_PAYPAL_ENABLED` | no | `true` shows PayPal in the Drop-in. Braintree's sandbox needs a linked PayPal sandbox account for it (otherwise `PAYPAL_SANDBOX_ACCOUNT_NOT_LINKED`); off by default. |
+| `E2E_BYPASS_TOKEN` | no | Test-only, 32 characters or more. Browser tests that send it in `x-signoff-e2e` may start demo workspaces without counting against the per-address limit; every other cap still applies. Leave unset unless you run the production browser tests. |
 | `CURRENCY` | no | Default `USD`. Match the Braintree merchant account. |
 | `DEMO_VIDEO_URL` | no | Shows a "Watch the demo" button on the front page. |
 | `LIMIT_*` | no | Daily caps. Defaults: per demo workspace 15 AI checks, 10 AI drafts, 10 AI change notes, 150 page reads; per visitor address 120 AI checks and 25 new workspaces (judges may share one office address), and ten workspaces' worth of drafts, notes and reads; for the whole server 400 checks, 300 drafts, 150 notes, 5,000 reads. The last fifth of the day's checks is kept for first-time visitors. Every cap resets at 00:00 UTC, and a visitor who hits one is told which cap and when it resets. Keep the global check cap under your model provider's daily quota. |
@@ -66,8 +68,10 @@ E2E_BASE_URL=https://<your-url> pnpm test:e2e
 
 In the Braintree control panel, open **Settings, Webhooks**, add `https://<your-url>/api/webhooks/braintree`, and subscribe to:
 
-- Transaction: settled, settlement declined, disbursed
-- Dispute: opened, under review, won, lost, accepted, expired
+- Dispute: all kinds (opened, under review, won, lost, accepted, auto-accepted, disputed, expired)
+- Transaction kinds, where your control panel offers them. This project's sandbox offers dispute kinds only; transaction status is then kept in step by reconcile.
+
+Verified on 10 November 2026: a dispute opened in the sandbox reached the hosted endpoint as `dispute_opened` and then `dispute_disputed`, and a signed sample webhook got 200 while a tampered one got 400.
 
 The handler verifies every signature with the Braintree SDK, deduplicates events, and re-reads the transaction or dispute from Braintree rather than trusting the payload. Without a public webhook URL, **Reconcile with Braintree** on a project pulls the same state.
 

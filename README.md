@@ -2,7 +2,7 @@
 
 Pay on acceptance for freelance and agency work. The client's money is held up front, an AI checker tests the delivery against the acceptance criteria both sides agreed and shows its evidence, and the money is released only when the client signs off.
 
-**Live demo:** https://signoff-iota.vercel.app. No sign-up: each visitor gets a private demo workspace with test money, on the built-in test rail until the Braintree sandbox keys are in. The header says which rail is live.
+**Live demo:** https://signoff-iota.vercel.app. No sign-up: each visitor gets a private demo workspace, and every payment runs on the real Braintree sandbox. No real money moves.
 **Health:** https://signoff-iota.vercel.app/api/health shows which payment rail and which AI model are live right now.
 
 ![The evidence report on the cheat sample: tampering found, and the hidden start time and address not accepted as proof](docs/screenshots/report-cheat.png)
@@ -21,7 +21,23 @@ Signoff moves money through **Braintree**, which is part of the PayPal developer
 
 PayPal does not open accounts in Pakistan, where the builder lives ([Profit, January 2024](https://profit.pakistantoday.com.pk/2024/01/06/fact-check-paypal-is-not-coming-to-pakistan/): users "can simply not create an account on PayPal from Pakistan"), so PayPal REST sandbox credentials were not available. The Braintree sandbox is. Clients pay with their PayPal account through Braintree's PayPal integration, or with a card.
 
-**Status of the live sandbox:** the Braintree integration is written and covered by a gated live test suite (`tests/unit/live-braintree.test.ts`), but it has **not yet been run against the Braintree sandbox**, because the sandbox keys are still pending. Until they arrive, the hosted demo and the tests run on a built-in test rail (`src/lib/payments/fake-rail.ts`) with the same rules as Braintree: void only while authorized or submitted, release only while authorized, settle only after release, holds expire (7 days for cards, 29 for PayPal), and it accepts Braintree's documented fake nonces. The header and the client page say which rail is live.
+**Run against the live Braintree sandbox on 10 November 2026.** The hosted demo runs every payment on the sandbox (`/api/health` reports `"rail":"sandbox"`). What was run, and the result:
+
+| Case | Result |
+|---|---|
+| Client token for the Drop-in | Passed |
+| Hold with a card, release, settle (sandbox settle helper) | Passed |
+| Partial release | Passed |
+| Void | Passed |
+| A retried hold with the same order id returns the first hold; a retried release or void returns the transaction | Passed |
+| Processor decline (`fake-processor-declined-visa-nonce`) | Passed: refused with Braintree's message |
+| Webhook signature check with the real keys; a tampered signature | Passed: 200 and 400 on the hosted endpoint |
+| Dispute card `4023 8984 9398 8028`: settle, chargeback opens, evidence added and finalized | Passed: Braintree reports the dispute as `disputed` with the evidence attached |
+| Real Drop-in, card typed into Braintree's frames, in a browser on the host | Passed, in the production browser test |
+| Full loop on the host: hold, cheat caught, change request, passing delivery, sign-off and release, receipt, settle, dispute by reconcile and then by Braintree's own `dispute_opened` webhook, evidence approved and submitted | Passed |
+| PayPal through Braintree | Not available: see below |
+
+**PayPal in this sandbox.** The Drop-in's PayPal option fails with Braintree's error `PAYPAL_SANDBOX_ACCOUNT_NOT_LINKED`: "A linked PayPal Sandbox account is required to use PayPal Checkout in Sandbox." The builder cannot open a PayPal account, so none can be linked, and the server refuses Braintree's PayPal test nonce with "Payment instrument type is not accepted by this merchant account". The hosted demo therefore offers cards only, says why next to the form, and the PayPal code path stays behind `BRAINTREE_PAYPAL_ENABLED`. Installs with no keys, and CI, run on a built-in test rail (`src/lib/payments/fake-rail.ts`) with the same rules as Braintree: void only while authorized or submitted, release only while authorized, settle only after release, holds expire (7 days for cards, 29 for PayPal), and Braintree's documented fake nonces are accepted.
 
 | Product step | Braintree mechanism |
 |---|---|
@@ -30,7 +46,7 @@ PayPal does not open accounts in Pakistan, where the builder lives ([Profit, Jan
 | Client accepts | `transaction.submitForSettlement` (full release) |
 | Partial release | `submitForSettlement` with a smaller amount; the rest of the hold drops off |
 | Client declines | `transaction.void`, only after re-reading that the transaction is still `authorized` |
-| Payment form | Braintree Drop-in with PayPal (`intent: authorize`) and cards |
+| Payment form | Braintree Drop-in with cards; PayPal (`intent: authorize`) when a linked PayPal sandbox account allows it |
 | Webhooks | `webhookNotification.parse` verifies the signature; events are deduplicated; the transaction or dispute is re-read from Braintree |
 | Reconcile | `transaction.find` and `dispute.search` compare local state with Braintree; mismatches are flagged, never papered over |
 | Dispute defence | `dispute.find`, `dispute.addTextEvidence` and `dispute.finalize`, after the operator approves the pack |
@@ -40,7 +56,7 @@ PayPal does not open accounts in Pakistan, where the builder lives ([Profit, Jan
 Two people use Signoff: the **operator** (the freelancer or agency doing the work, who runs the app) and the **client** (who pays, and opens a link with no account).
 
 1. **Scope to milestones.** The operator pastes the scope. The AI drafts milestones with two to five checkable acceptance criteria each. Every criterion carries the exact sentence from the scope that justifies it, and the code checks that sentence is really in the scope.
-2. **Hold.** The client opens a signed link (no account) and funds a milestone with PayPal or a card. The page says the money is held, not charged, and when the hold expires.
+2. **Hold.** The client opens a signed link (no account) and funds a milestone by card through the Braintree Drop-in (PayPal too, where a linked PayPal sandbox account allows it). The page says the money is held, not charged, and when the hold expires.
 3. **Deliver.** The operator submits links (a staging URL, a public GitHub repository, a PDF), notes and files. Files are marked either as the deliverable itself or as the freelancer's notes.
 4. **Check.** The checker reads the delivery with read-only tools and marks each criterion met, not met or needs a person, quoting what it read. The page shows live progress.
 5. **Decide.** The client reads the evidence report and accepts and releases (typing their name), requests changes (the AI drafts the note from the failing criteria), or declines (the hold is voided).
@@ -52,12 +68,12 @@ Two people use Signoff: the **operator** (the freelancer or agency doing the wor
 
 Open the live demo and click **Try the live demo**. You get a private workspace with the sample project, a fictional pottery studio site. You play both sides.
 
-1. Open the project, then **Open as client**. Fund milestone 1 with a hold: on the test rail click **PayPal account (test nonce)**; on the Braintree sandbox, pay by card with `4023 8984 9398 8028` so step 6 has a real chargeback.
+1. Open the project, then **Open as client**. Fund milestone 1 with a hold through the Braintree Drop-in: copy the dispute test card `4023 8984 9398 8028` shown next to the form, any future expiry, any 3-digit code, so step 6 has a real chargeback. In a hurry, **Quick hold with the dispute card** makes the same sandbox hold from the server without typing.
 2. As the operator, pick **v1 with a cheat** and submit. The report flags text hidden from visitors, the requirement pasted onto the page and an instruction aimed at the AI, and the hidden start time and address are not accepted as proof.
 3. As the client, **Request changes**, **Draft from the report**, send.
 4. As the operator, submit **v2, complete**. All four criteria are met, with quotes.
 5. As the client, type a name and **Sign off and release payment**. Open the receipt.
-6. As the operator, open the chargeback: on the test rail click **Open a chargeback with a signed webhook**; on the sandbox click **Settle now and check for disputes**. Review the drafted evidence and approve it. The dispute screen shows sign-off, chargeback, evidence and outcome.
+6. As the operator, click **Settle now and check for disputes**. Braintree's sandbox settles the transaction and the dispute card opens a chargeback; it appears within a few seconds, and Braintree's webhook follows. Review the drafted evidence and approve it. Braintree marks the dispute `disputed` once evidence is finalized; the sandbox does not go on to rule won or lost. On an install with no keys, **Open a chargeback with a signed webhook** plays the same steps on the test rail.
 
 If a report says it was checked by the scripted checker, the day's AI budget is used up or the model did not answer. The report says which, and when the limit resets. The scripted checker matches key words and is more cautious: it sends more criteria to a person.
 
@@ -146,7 +162,7 @@ pnpm dev
 Open http://localhost:3000. Locally, sign in with the passcode `signoff-demo` and click **Load sample project**, or set `DEMO_MODE=true` to get the public-demo flow. Data goes to `./data/signoff.db`, and the app creates its tables on first run.
 
 - **With no keys** the app runs on the test rail and the scripted checker. The whole loop works, including disputes.
-- **With Braintree sandbox keys** (`BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY`) the client page shows the Braintree Drop-in with PayPal and cards. Create a free sandbox at https://sandbox.braintreegateway.com. Test card `4111 1111 1111 1111`; dispute test card `4023 8984 9398 8028`.
+- **With Braintree sandbox keys** (`BRAINTREE_MERCHANT_ID`, `BRAINTREE_PUBLIC_KEY`, `BRAINTREE_PRIVATE_KEY`) the client page shows the Braintree Drop-in with cards, Braintree's test cards to copy, and quick server-side holds (set `BRAINTREE_PAYPAL_ENABLED=true` only if your sandbox has a linked PayPal sandbox account). Create a free sandbox at https://sandbox.braintreegateway.com. Test card `4111 1111 1111 1111`; dispute test card `4023 8984 9398 8028`.
 - **With `GOOGLE_GENERATIVE_AI_API_KEY`** (a free key from Google AI Studio works) the planner and checker use Gemini. The free tier may use prompts to improve Google's products, so the public demo asks visitors not to paste real client documents.
 
 Hosting: [docs/deploy.md](docs/deploy.md) has the environment variables and the steps for Vercel with a hosted libSQL database, and where to point the Braintree webhook.
@@ -198,7 +214,9 @@ The cheat pages in `public/samples/` are test fixtures: they hide text and addre
 
 ## Known limits
 
-- Not yet run against the Braintree sandbox; see the status above. What the Drop-in's PayPal button does on a sandbox not linked to a PayPal test account is unverified.
+- PayPal through Braintree is not shown working: the sandbox needs a linked PayPal sandbox account, which the builder cannot have. Cards work end to end.
+- After evidence is finalized, the sandbox leaves the dispute `disputed`; a won or lost outcome is not shown on the live sandbox. The test rail shows the outcome step.
+- Braintree's control panel offers webhook subscriptions for disputes only in this sandbox; transaction status changes are picked up by reconcile, which runs on every money action and from the **Reconcile with Braintree** button.
 - Hidden text set by JavaScript (including text a script removes on load), by stylesheets from another origin or `@import`, by pseudo-class or sibling selectors, by text over an image or gradient, or by stacking one element over another is not detected, and neither is a server that shows the checker a different page from visitors; a headless browser would catch most of these.
 - The instruction detector is a pattern list: it catches common phrasings and disguises, not every paraphrase. The evidence rule, not the detector, is what stops a steered model from passing work.
 - Client links do not expire; the operator can replace a link to revoke the old one.

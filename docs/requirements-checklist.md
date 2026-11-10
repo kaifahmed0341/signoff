@@ -14,7 +14,7 @@ PayPal does not open accounts in Pakistan, where the builder lives, so PayPal RE
 
 | Requirement | Status | Where |
 |---|---|---|
-| Integrates the PayPal developer platform using the free sandbox | Partly met | Braintree rail in `src/lib/payments/braintree-rail.ts`; live checks in `tests/unit/live-braintree.test.ts`. **Not yet run against the Braintree sandbox: keys pending.** The hosted demo runs on the test rail until then and says so. |
+| Integrates the PayPal developer platform using the free sandbox | Met | Braintree sandbox, run live on 10 November 2026: hold, release, partial release, void, retries, decline, webhook signatures, the dispute card through to evidence finalized (`tests/unit/live-braintree.test.ts`, 8 of 9 cases; the ninth is PayPal, below), and the full loop on the host with the real Drop-in (`tests/e2e/loop.spec.ts` against production). `/api/health` reports `"rail":"sandbox"`. PayPal through Braintree is not available: the sandbox needs a linked PayPal sandbox account (`PAYPAL_SANDBOX_ACCOUNT_NOT_LINKED`) |
 | Integrates an AI tool, model or platform | Met | Gemini (default) and Claude through the Vercel AI SDK, `src/lib/ai/`. Live Gemini evaluation: 31 of 31 correct on 8 deliveries, `docs/eval-latest.md` |
 | PayPal integration central to the project | Met | Holds, release, partial release, void, expiry, webhooks, reconcile, dispute evidence: README "Payment rail" |
 | AI meaningful, not decorative | Met | Planner with verified citations; checker agent with read-only tools; evidence rule enforced in code; tampering findings; change-note drafting. Lint forbids the AI code from importing the payment rail |
@@ -22,7 +22,7 @@ PayPal does not open accounts in Pakistan, where the builder lives, so PayPal RE
 | Sufficiently documented | Met | `README.md`, `docs/deploy.md`, `docs/eval-latest.md` |
 | Newly created during the submission period | Met | A new project, started 9 November 2026; the first commit is `cb2c029` on that day. Stated at the top of the README |
 | Third-party SDKs used under their terms | Met | Braintree SDKs (MIT), AI SDK (Apache-2.0), AG Grid Community (MIT), ipaddr.js (MIT). The Gemini free tier may use prompts to improve Google's products, so the public demo asks visitors not to paste real client documents |
-| Installs and runs as depicted | Met on the test rail; Partly met on the sandbox | As in the first row |
+| Installs and runs as depicted | Met | Hosted on the Braintree sandbox; installs with no keys run on the test rail |
 
 ## Submission requirements
 

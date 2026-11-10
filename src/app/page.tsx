@@ -18,7 +18,7 @@ const steps = [
   {
     icon: Lock,
     title: "Money held, not charged",
-    body: "The client funds a milestone with PayPal or a card. It is an authorization: the money is reserved and nothing is charged until they sign off.",
+    body: "The client funds a milestone through Braintree, a PayPal service. It is an authorization: the money is reserved and nothing is charged until they sign off.",
   },
   {
     icon: ShieldCheck,
