@@ -24,18 +24,21 @@ const time = (v: unknown): number | null => {
 };
 
 export function toHold(t: Loose): Hold {
+  // The Node SDK builds a paypalAccount object on every transaction, cards included,
+  // so the label follows paymentInstrumentType, never the presence of that object.
+  const instrument = str(t.paymentInstrumentType) ?? "unknown";
   const paypal = (t.paypalAccount ?? null) as Loose | null;
   const card = (t.creditCard ?? null) as Loose | null;
   let payerLabel: string | null = null;
-  if (paypal && str(paypal.payerEmail)) payerLabel = `PayPal ${paypal.payerEmail}`;
-  else if (paypal) payerLabel = "PayPal";
-  else if (card && str(card.last4)) payerLabel = `${card.cardType ?? "Card"} ending ${card.last4}`;
+  if (instrument === "paypal_account") payerLabel = paypal && str(paypal.payerEmail) ? `PayPal ${paypal.payerEmail}` : "PayPal";
+  else if (instrument === "credit_card" && card && str(card.last4)) payerLabel = `${str(card.cardType) ?? "Card"} ending ${card.last4}`;
+  else if (instrument !== "unknown") payerLabel = instrument.replace(/_/g, " ");
   return {
     transactionId: String(t.id),
     status: String(t.status),
     amountCents: amountToCents(String(t.amount ?? "0")),
     currency: str(t.currencyIsoCode) ?? "USD",
-    instrument: str(t.paymentInstrumentType) ?? "unknown",
+    instrument,
     payerLabel,
     authorizationExpiresAt: time(t.authorizationExpiresAt),
     createdAt: time(t.createdAt),

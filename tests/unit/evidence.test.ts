@@ -95,3 +95,13 @@ describe("criterion specifics", () => {
     expect(specifics("The repository is published under the MIT licence.")).toEqual(["MIT"]);
   });
 });
+
+describe("payment instrument labels", () => {
+  it("labels a card by brand even when the SDK attaches an empty PayPal object", async () => {
+    const { toHold } = await import("@/lib/payments/braintree-rail");
+    const card = toHold({ id: "t1", status: "authorized", amount: "450.00", currencyIsoCode: "USD", paymentInstrumentType: "credit_card", paypalAccount: {}, creditCard: { cardType: "Visa", last4: "1111" } });
+    expect(card.payerLabel).toBe("Visa ending 1111");
+    const pp = toHold({ id: "t2", status: "authorized", amount: "1", paymentInstrumentType: "paypal_account", paypalAccount: { payerEmail: "buyer@example.com" }, creditCard: {} });
+    expect(pp.payerLabel).toBe("PayPal buyer@example.com");
+  });
+});

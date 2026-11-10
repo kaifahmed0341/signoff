@@ -147,7 +147,7 @@ function TestCheckout(props: Props) {
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-dashed bg-muted/50 p-3 text-xs text-muted-foreground">
-        Test rail: this install has no Braintree keys yet, so the payment form is replaced by test payment methods. With keys set, this is the Braintree Drop-in with PayPal and cards.
+        Test rail: this install has no Braintree keys yet, so the payment form is replaced by test payment methods. With keys set, this is the Braintree Drop-in for cards, and PayPal where a linked PayPal sandbox account allows it.
       </div>
       <div className="grid sm:grid-cols-2 gap-2">
         <Button size="lg" disabled={pending} onClick={() => fund("fake-paypal-one-time-nonce")}>
