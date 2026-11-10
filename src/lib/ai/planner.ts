@@ -1,7 +1,7 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { MilestoneDraft } from "../services/milestones";
-import { findQuote, normalizeText } from "./evidence";
+import { SUBJECTIVE, asPersonCriterion, findQuote, isPersonCriterion, normalizeText } from "./evidence";
 import { providerOptions, resolveModel, withModelFallback } from "./model";
 
 /**
@@ -25,10 +25,11 @@ export const planSchema = z.object({
             z.object({
               text: z.string().min(1).max(300).describe("A checkable statement about the delivery"),
               sourceQuote: z.string().min(1).describe("The exact sentence or phrase from the scope, copied character for character"),
+              needsPerson: z.boolean().describe("True when the line is a matter of taste or feel that a person must judge, such as modern, mobile friendly or calm and professional"),
             }),
           )
           .min(1)
-          .max(5),
+          .max(8),
       }),
     )
     .min(1)
@@ -42,13 +43,18 @@ export type PlannedProject = {
   model: string;
   milestones: (MilestoneDraft & { dueInDays: number | null })[];
   unverifiedQuotes: number;
+  /** Criteria a person judges, because the scope line is about taste or feel. */
+  personCriteria?: number;
+  /** How many of those the model left out and the code added back from the scope. */
+  personAdded?: number;
   /** Set when the scripted planner stood in for the model, with the reason. */
   fallbackReason?: string;
 };
 
 const SYSTEM = `You turn a freelance scope of work into payment milestones.
 Rules:
-- Two to five acceptance criteria per milestone. Each must be checkable by reading the delivered website, document or code: concrete, observable, no opinions.
+- Two to five checkable acceptance criteria per milestone. Each must be checkable by reading the delivered website, document or code: concrete and observable. Set needsPerson to false for these.
+- Never drop a line of the scope about taste or feel, such as "modern", "mobile friendly", "not like a template" or "calm and professional". Clients argue about exactly these lines. Make each one its own criterion, worded as what the client asked for, with needsPerson set to true. These do not count toward the five.
 - For every criterion, sourceQuote must be copied exactly from the scope text, character for character. Never paraphrase it. If nothing in the scope supports a criterion, do not include the criterion.
 - Use the prices and dates the scope states. If the scope gives a total but no split, split it in proportion to the work. If there is no price, use 0.
 - Plain words. No marketing language.
@@ -83,6 +89,9 @@ export async function planFromScope(scope: string, allowAi: () => Promise<string
   return { ...finalizePlan(scriptedPlan(scope), scope, "scripted"), fallbackReason };
 }
 
+/** Most criteria a milestone may carry, matching the limit when milestones are saved. */
+export const MAX_CRITERIA = 10;
+
 export function finalizePlan(plan: Plan, scope: string, model: string): PlannedProject {
   let unverified = 0;
   const corpus = [{ source: "scope", text: scope }];
@@ -95,10 +104,71 @@ export function finalizePlan(plan: Plan, scope: string, model: string): PlannedP
     criteria: m.criteria.map((c) => {
       const ok = findQuote(c.sourceQuote, corpus) !== null;
       if (!ok) unverified++;
-      return { text: c.text, sourceQuote: ok ? normalizeText(c.sourceQuote) : c.sourceQuote, quoteVerified: ok };
+      const person = c.needsPerson || SUBJECTIVE.test(c.text);
+      return { text: person ? asPersonCriterion(c.text) : c.text, sourceQuote: ok ? normalizeText(c.sourceQuote) : c.sourceQuote, quoteVerified: ok };
     }),
   }));
-  return { projectName: plan.projectName, model, milestones, unverifiedQuotes: unverified };
+  const personAdded = addMissedSubjectiveLines(milestones, scope);
+  return { projectName: plan.projectName, model, milestones, unverifiedQuotes: unverified, personCriteria: milestones.flatMap((m) => m.criteria).filter((c) => isPersonCriterion(c.text)).length, personAdded };
+}
+
+/** Lines of the scope about taste or feel, each with its position in the scope. */
+export function subjectiveLines(scope: string): { text: string; at: number; word: string }[] {
+  const out: { text: string; at: number; word: string }[] = [];
+  let offset = 0;
+  for (const rawLine of scope.split("\n")) {
+    const lineAt = offset;
+    offset += rawLine.length + 1;
+    if (/^\s*milestone\s*\d+/i.test(rawLine)) continue;
+    for (const sentence of rawLine.split(/(?<=[.!?])\s+/)) {
+      const text = sentence.replace(/^\s*[-*\u2022]\s+/, "").trim();
+      const word = text.match(SUBJECTIVE)?.[0];
+      if (!word || text.length < 4 || text.length > 300) continue;
+      out.push({ text, at: lineAt + Math.max(0, rawLine.indexOf(text)), word: word.toLowerCase() });
+    }
+  }
+  return out;
+}
+
+/**
+ * The safety net under the prompt: any scope line about taste or feel that no
+ * criterion covers becomes a person-judged criterion on the milestone it sits
+ * under, so it is in the record both sides sign.
+ */
+export function addMissedSubjectiveLines(milestones: PlannedProject["milestones"], scope: string): number {
+  if (!milestones.length) return 0;
+  const norm = normalizeText(scope);
+  const posOf = (q: string) => norm.indexOf(normalizeText(q));
+  let added = 0;
+  for (const line of subjectiveLines(scope)) {
+    const lineNorm = normalizeText(line.text).toLowerCase();
+    const covered = milestones.some((m) =>
+      m.criteria.some((c) => {
+        const t = normalizeText(c.text).toLowerCase();
+        const q = normalizeText(c.sourceQuote).toLowerCase();
+        return t.includes(line.word) || (q.length >= 4 && (lineNorm.includes(q) || q.includes(lineNorm)));
+      }),
+    );
+    if (covered) continue;
+    // The milestone whose criteria come last before this line in the scope; the first milestone otherwise.
+    const at = posOf(line.text);
+    let target = milestones[0];
+    let best = -1;
+    for (const m of milestones) {
+      for (const c of m.criteria) {
+        const p = posOf(c.sourceQuote);
+        if (p >= 0 && p <= at && p > best) {
+          best = p;
+          target = m;
+        }
+      }
+    }
+    const home = target.criteria.length < MAX_CRITERIA ? target : milestones.find((m) => m.criteria.length < MAX_CRITERIA);
+    if (!home) continue;
+    home.criteria.push({ text: asPersonCriterion(line.text), sourceQuote: normalizeText(line.text), quoteVerified: true });
+    added++;
+  }
+  return added;
 }
 
 /**
@@ -124,7 +194,7 @@ export function scriptedPlan(scope: string): Plan {
     }
     const bullet = line.match(/^[-*]\s+(.+)$/);
     if (bullet && cur) {
-      if (cur.criteria.length < 5) cur.criteria.push({ text: bullet[1], sourceQuote: bullet[1] });
+      if (cur.criteria.length < 8) cur.criteria.push({ text: bullet[1], sourceQuote: bullet[1], needsPerson: SUBJECTIVE.test(bullet[1]) });
       continue;
     }
     if (cur && line && cur.criteria.length === 0 && cur.deliverable === cur.title) cur.deliverable = line;
@@ -140,7 +210,7 @@ export function scriptedPlan(scope: string): Plan {
         deliverable: firstLine,
         amount: 0,
         dueInDays: 14,
-        criteria: (sentences.length ? sentences : [firstLine]).slice(0, 5).map((s) => ({ text: s, sourceQuote: s })),
+        criteria: (sentences.length ? sentences : [firstLine]).slice(0, 5).map((s) => ({ text: s, sourceQuote: s, needsPerson: SUBJECTIVE.test(s) })),
       },
     ],
   };

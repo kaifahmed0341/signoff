@@ -157,7 +157,7 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     const byPos = (n: number) => vs[n - 1];
     expect(byPos(1).verdict).toBe("met");
     expect(byPos(2).verdict).toBe("needs_person");
-    expect(byPos(2).note).toMatch(/removed/);
+    expect(byPos(2).reasoning).toMatch(/removed/);
     expect(byPos(2).dropped[0].reason).toMatch(/not found/);
     expect(byPos(3).verdict).toBe("not_met");
     expect(byPos(4).evidence[0].source).toBe(page);

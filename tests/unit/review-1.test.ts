@@ -230,7 +230,7 @@ describe("M2 hidden and freelancer-authored text", () => {
     const c = await latestCheck(db, m.id);
     const v = (await db.select().from(verdicts).where(eq(verdicts.checkId, c!.id))).find((x) => x.evidence.length > 0);
     expect(v?.verdict).toBe("needs_person");
-    expect(v?.note).toMatch(/notes/);
+    expect(v?.reasoning).toMatch(/notes/);
   });
 });
 

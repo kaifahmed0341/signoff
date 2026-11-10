@@ -169,7 +169,7 @@ describe("N4 a met quote must show what the criterion names", () => {
     await runCheck(db, m.id, d);
     const v = (await verdictsOf(m.id))[1];
     expect(v.verdict).toBe("needs_person");
-    expect(v.note).toMatch(/"10:00"/);
+    expect(v.reasoning).toMatch(/"10:00"/);
   });
   it("N4: a quote that shows the values keeps its met", () => {
     const r = enforceEvidenceRule("met", [{ source: "p", quote: "Saturday wheel-throwing class, start time 10:00", kind: "page" }], 0, { pageCriterion: true, criterion: "The page lists the Saturday wheel-throwing class with its start time of 10:00." });

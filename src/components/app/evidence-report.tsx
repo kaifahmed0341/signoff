@@ -118,7 +118,15 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
                       <div className="min-w-0">
                         <div className="break-words">&ldquo;{e.quote}&rdquo;</div>
                         <div className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-1">
-                          <CheckCircle2 className="size-3 text-met" /> Found word for word {KIND[e.kind ?? "page"]}: <SourceLabel source={e.source} />
+                          {v?.verdict === "met" ? (
+                            <>
+                              <CheckCircle2 className="size-3 text-met" /> Found word for word {KIND[e.kind ?? "page"]}: <SourceLabel source={e.source} />
+                            </>
+                          ) : (
+                            <>
+                              <Info className="size-3" /> What the delivery shows, not proof that this is met. Found word for word {KIND[e.kind ?? "page"]}: <SourceLabel source={e.source} />
+                            </>
+                          )}
                         </div>
                       </div>
                     </blockquote>

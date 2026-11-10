@@ -119,6 +119,8 @@ export type VerdictValue = "met" | "not_met" | "needs_person";
  * cannot prove what a live page shows. That needs a link to the page.
  */
 export function aboutPage(criterion: string): boolean {
+  // A criterion about a document ("the 6-page strategy PDF lists...") is about the file, not a live page.
+  if (/\b(document|pdf|docx?|report|deck|slides?|spreadsheet|handover|brochure|guide|strategy)\b/i.test(criterion)) return false;
   return /\b(page|pages|site|website|web site|homepage|landing|screen|app|button|form|visitors?|browser|menu|navigation|header|footer|mobile)\b/i.test(criterion);
 }
 
@@ -164,24 +166,97 @@ export function enforceEvidenceRule(
   if (verdict === "met" && proof.length > 0 && opts.criterion) {
     const missing = missingSpecifics(opts.criterion, proof.map((k) => k.quote));
     if (missing.length) {
-      return { verdict: "needs_person", note: `The quotes do not show ${missing.map((m) => `"${m}"`).join(", ")}, which the criterion names, so a person should look.` };
+      return { verdict: "needs_person", note: `The checker called this met, but its quotes do not show ${missing.map((m) => `"${m}"`).join(", ")}, which the criterion names, so a person should look.` };
     }
   }
   if (verdict === "met" && proof.length === 0) {
     if (kept.some((k) => k.kind === "deliverable_file") && opts.pageCriterion) {
-      return { verdict: "needs_person", note: "This is about a live page, and only an uploaded file supports it. A file is the freelancer's own copy; a person should check the live page." };
+      return { verdict: "needs_person", note: "The checker called this met, but only an uploaded file supports it, and a file is the freelancer's own copy, not the live page. A person should check the live page." };
     }
     if (kept.length > 0) {
-      return { verdict: "needs_person", note: "Only the freelancer's own notes support this. Notes are a claim, not proof, so a person should look." };
+      return { verdict: "needs_person", note: "The checker called this met, but only the freelancer's own notes support it. Notes are a claim, not proof, so a person should look." };
     }
     return {
       verdict: "needs_person",
       note:
         droppedCount > 0
-          ? `The checker said this was met, but all ${droppedCount} of its quote(s) were removed, so a person should look.`
-          : "The checker said this was met but gave no quote to back it up. A person should look.",
+          ? `The checker called this met, but all ${droppedCount} of its quote(s) were removed, so a person should look.`
+          : "The checker called this met but gave no quote to back it up. A person should look.",
     };
   }
   if (droppedCount > 0) return { verdict, note: `${droppedCount} quote(s) were removed. See why below.` };
   return { verdict, note: null };
+}
+
+// ------------------------------------------------------------ person-judged criteria
+
+/**
+ * Scope lines about taste or feel ("modern", "mobile friendly", "calm and
+ * professional") are what clients argue about later, so the planner never
+ * drops them. It keeps each one as a criterion with this prefix, and the
+ * checker always sends such a criterion to a person.
+ */
+export const PERSON_PREFIX = "For a person to judge: ";
+
+export function isPersonCriterion(text: string): boolean {
+  return normalizeText(text).toLowerCase().startsWith(PERSON_PREFIX.trim().toLowerCase());
+}
+
+export function asPersonCriterion(text: string): string {
+  const t = normalizeText(text);
+  return isPersonCriterion(t) ? t : `${PERSON_PREFIX}${t}`;
+}
+
+/** Words that mark a line as a matter of taste or of how something feels to use, not a fact the checker can read. */
+export const SUBJECTIVE =
+  /\b(modern|mobile[- ]friendly|responsive|user[- ]friendly|easy to use|intuitive|looks?|feels?|professional|calm|clean|trustworthy|on[- ]brand|polished|beautiful|attractive|elegant|stylish|premium|sleek|tone|template|nice)\b/i;
+
+const PERSON_REASONING = "The scope asks for this, and it is a matter of judgement, not a fact on the page, so the checker does not decide it. A person should look at the delivery.";
+
+const GENERIC_STEMS = new Set(["page", "show", "list", "site", "webs", "visi", "incl", "name", "disp", "link", "deli", "cont", "has", "give"]);
+
+/**
+ * On a "not met", a quote is not evidence for anything. It can only show what
+ * the delivery has instead (a different phone number, "schedule coming soon").
+ * Keep it only when it bears on the criterion: it contains one of the values
+ * the criterion names, or shares two of its key words beyond page and site.
+ */
+export function bearsOn(quote: string, criterion: string): boolean {
+  const q = normalizeText(quote).toLowerCase();
+  if (specifics(criterion).some((v) => q.includes(v.toLowerCase()))) return true;
+  const c = new Set([...stems(criterion)].filter((w) => !GENERIC_STEMS.has(w)));
+  return [...stems(quote)].filter((w) => c.has(w)).length >= 2;
+}
+
+/**
+ * The verdict a report shows, after the evidence rule. When the code changes
+ * the model's verdict, the model's own sentence is replaced by the reason, so
+ * a client never reads "the delivery covers everything" above "needs a person".
+ */
+export function finalizeVerdict(input: {
+  criterion: string;
+  verdict: VerdictValue;
+  reasoning: string;
+  kept: VerifiedEvidence[];
+  dropped: DroppedEvidence[];
+  pageCriterion?: boolean;
+}): { verdict: VerdictValue; reasoning: string; note: string | null; evidence: VerifiedEvidence[]; dropped: DroppedEvidence[] } {
+  let kept = input.kept;
+  const dropped = [...input.dropped];
+  if (isPersonCriterion(input.criterion)) {
+    return { verdict: "needs_person", reasoning: PERSON_REASONING, note: null, evidence: kept, dropped };
+  }
+  if (input.verdict === "not_met") {
+    const off = kept.filter((k) => !bearsOn(k.quote, input.criterion));
+    for (const k of off) dropped.push({ source: k.source, quote: k.quote, reason: "does not mention what the criterion asks for, so it is not shown" });
+    kept = kept.filter((k) => !off.includes(k));
+    const enforced = enforceEvidenceRule("not_met", kept, input.dropped.length);
+    return { verdict: "not_met", reasoning: input.reasoning, note: enforced.note, evidence: kept, dropped };
+  }
+  const enforced = enforceEvidenceRule(input.verdict, kept, dropped, { pageCriterion: input.pageCriterion, criterion: input.criterion });
+  if (enforced.verdict !== input.verdict) {
+    // The model's sentence argued for the verdict the code just refused. Show the reason instead.
+    return { verdict: enforced.verdict, reasoning: enforced.note ?? "The evidence check did not accept the checker's verdict. A person should look.", note: null, evidence: kept, dropped };
+  }
+  return { verdict: enforced.verdict, reasoning: input.reasoning, note: enforced.note, evidence: kept, dropped };
 }
