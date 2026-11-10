@@ -97,7 +97,13 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   {m.state === "in_review" && <DecisionPanel projectId={project.id} token={token} milestoneId={m.id} heldCents={m.heldCents} heldLabel={money(m.heldCents, project.currency)} allMet={allMet} />}
                   {m.disputes.length > 0 && (
                     <div role="alert" className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-900 dark:text-red-200">
-                      <strong>A chargeback was opened on this payment</strong> ({m.disputes[0].status.replace(/_/g, " ")}). The freelancer can answer it with the acceptance record you signed.
+                      <strong>A chargeback was opened on this payment</strong> ({m.disputes[0].status.replace(/_/g, " ")}).{" "}
+                      {m.disputes[0].status === "won"
+                        ? "It was decided for the freelancer, so the payment stands."
+                        : m.disputes[0].status === "lost"
+                          ? "It was decided for you, so the payment is returned to your card."
+                          : "The freelancer can answer it with the acceptance record you signed."}
+                      {["won", "lost"].includes(m.disputes[0].status) && rail !== "production" && " Sandbox: decided by Braintree's test value in the evidence, not by a bank."}
                     </div>
                   )}
                   {m.state === "released" && (

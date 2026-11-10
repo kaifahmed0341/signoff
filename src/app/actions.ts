@@ -290,13 +290,13 @@ export async function reconcileAction(projectId: string): Promise<ActionResult<s
   }
 }
 
-export async function approveDisputeAction(disputeId: string, pack: string, sandboxMarkCompelling = false): Promise<ActionResult> {
+export async function approveDisputeAction(disputeId: string, pack: string, sandboxOutcome: "win" | "lose" | "none" = "none"): Promise<ActionResult> {
   const w = await requireWorkspace();
   try {
     const db = await getDb();
     const d = await getDisputeRow(db, disputeId);
     const m = await getOwnedMilestone(db, w.id, d.milestoneId);
-    await approveAndSubmitDispute(db, getRail(), disputeId, String(pack).slice(0, 20_000), { sandboxMarkCompelling: sandboxMarkCompelling === true });
+    await approveAndSubmitDispute(db, getRail(), disputeId, String(pack).slice(0, 20_000), { sandboxOutcome: sandboxOutcome === "win" || sandboxOutcome === "lose" ? sandboxOutcome : "none" });
     revalidatePath(`/projects/${m.projectId}`);
     return { ok: true };
   } catch (err) {

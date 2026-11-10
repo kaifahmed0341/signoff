@@ -219,9 +219,9 @@ export class FakeRail implements PaymentRail {
   async finalizeDispute(disputeId: string) {
     const d = await this.dispute(disputeId);
     if (d.status !== "open") throw new RailError("Only an open dispute can be finalized", "95702");
-    // Mirrors the Braintree sandbox: the magic evidence value decides the outcome.
-    const text = d.evidence.map((e) => e.content).join("\n");
-    const status = text.includes("losing_evidence") ? "lost" : text.includes("compelling_evidence") ? "won" : "disputed";
+    // Mirrors the Braintree sandbox: an evidence item whose whole content is the test value decides it.
+    const items = d.evidence.map((e) => e.content.trim());
+    const status = items.includes("losing_evidence") ? "lost" : items.includes("compelling_evidence") ? "won" : "disputed";
     const db = await getDb();
     await db.update(fakeDisputes).set({ status }).where(eq(fakeDisputes.id, d.id));
     return toDispute({ ...d, status });

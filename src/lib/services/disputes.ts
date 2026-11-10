@@ -126,9 +126,16 @@ export function chunkEvidence(text: string, limit = TEXT_EVIDENCE_LIMIT): string
 }
 
 /** Operator approves the drafted pack; we submit it to Braintree and finalize. */
+/**
+ * Braintree's sandbox rules a finalized dispute won or lost from a test value: an evidence item whose whole
+ * content is one of these (verified live on 10 November 2026: won about 25 seconds after finalizing).
+ * Sandbox and test rail only, and only when the operator picks an outcome.
+ */
 export const SANDBOX_WIN_MARKER = "compelling_evidence";
+export const SANDBOX_LOSE_MARKER = "losing_evidence";
+export type SandboxOutcome = "win" | "lose" | "none";
 
-export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, disputeId: string, editedPack?: string, opts: { sandboxMarkCompelling?: boolean } = {}): Promise<Dispute> {
+export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, disputeId: string, editedPack?: string, opts: { sandboxMarkCompelling?: boolean; sandboxOutcome?: SandboxOutcome } = {}): Promise<Dispute> {
   const d = await getDisputeRow(db, disputeId);
   const m = await getMilestone(db, d.milestoneId);
   if (d.submittedAt) throw new ServiceError("Evidence was already submitted for this dispute", 409);
@@ -136,10 +143,10 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
   if (!m.acceptanceRecord || !m.acceptanceSignature || !verifyRecord(m.acceptanceRecord, m.acceptanceSignature)) {
     throw new ServiceError("The acceptance record is missing or its signature does not verify", 409);
   }
-  let pack = (editedPack ?? d.evidencePack ?? "").trim();
+  const pack = (editedPack ?? d.evidencePack ?? "").trim();
   if (!pack) throw new ServiceError("The evidence pack is empty");
-  // Braintree's sandbox decides a dispute's outcome from a test value in the evidence. Sandbox and test rail only, and only when the operator ticks it.
-  if (opts.sandboxMarkCompelling && rail.mode !== "production") pack = `${pack}\n${SANDBOX_WIN_MARKER}`;
+  // Braintree's sandbox decides a dispute's outcome from a test value in the evidence. Sandbox and test rail only, and only when the operator picks one.
+  const outcome: SandboxOutcome = rail.mode === "production" ? "none" : (opts.sandboxOutcome ?? (opts.sandboxMarkCompelling ? "win" : "none"));
   const now = new Date();
   // Claim the dispute so two quick clicks cannot submit evidence twice.
   const claim = await db
@@ -154,6 +161,8 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
   try {
     const chunks = chunkEvidence(pack);
     for (const [i, c] of chunks.entries()) ids.push(await rail.addDisputeTextEvidence(d.id, c, i));
+    // The sandbox's test value goes in as its own evidence item, never mixed into the pack itself.
+    if (outcome !== "none") ids.push(await rail.addDisputeTextEvidence(d.id, outcome === "win" ? SANDBOX_WIN_MARKER : SANDBOX_LOSE_MARKER, chunks.length));
     final = await rail.finalizeDispute(d.id);
   } catch (err) {
     const e = err instanceof RailError ? err : new RailError(String(err));

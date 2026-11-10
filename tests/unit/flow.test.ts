@@ -303,7 +303,7 @@ describe("webhooks and dispute defence", () => {
     const [row] = await milestoneDisputes(db, m.id);
     expect(row.status).toBe("open");
     expect(row.submittedAt).toBeNull();
-    const done = await approveAndSubmitDispute(db, rail, row.id, `${row.evidencePack}\ncompelling_evidence`);
+    const done = await approveAndSubmitDispute(db, rail, row.id, undefined, { sandboxOutcome: "win" });
     expect(done.submittedAt).toBeTruthy();
     expect(done.evidenceIds?.length).toBeGreaterThan(0);
     expect(done.status).toBe("won");
@@ -472,5 +472,34 @@ describe("chargeback after sign-off", () => {
     const id = await rail.openDisputeFor((await getMilestone(db, m.id)).transactionId!);
     await upsertDispute(db, rail, await rail.getDispute(id), "reconcile");
     await expect(acceptAndRelease(db, rail, m.id, { signerName: "Robin" })).rejects.toThrow(/chargeback is open/);
+  });
+});
+
+describe("dispute outcome from the sandbox test value", () => {
+  async function opened() {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    await acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
+    return (await simulateChargeback(db, rail, m.id, 0))!;
+  }
+  for (const [choice, status] of [["win", "won"], ["lose", "lost"], ["none", "disputed"]] as const) {
+    it(`${choice} gives ${status}, the test value sent as its own evidence item`, async () => {
+      const d = await opened();
+      const done = await approveAndSubmitDispute(db, rail, d.id, undefined, { sandboxOutcome: choice });
+      expect(done.status).toBe(status);
+      expect(done.evidenceIds!.length).toBeGreaterThan(choice === "none" ? 0 : 1);
+      if (status !== "disputed") expect(done.outcomeAt).toBeTruthy();
+    });
+  }
+  it("a dispute_won webhook updates the status and the timeline", async () => {
+    const d = await opened();
+    await approveAndSubmitDispute(db, rail, d.id, undefined, { sandboxOutcome: "win" });
+    await new Promise((r) => setTimeout(r, 1100));
+    const s = await rail.disputeWebhook("dispute_won", d.id);
+    expect((await handleWebhook(db, rail, s.signature, s.payload)).outcome).toMatch(/won/);
+    const [row] = await db.select().from(disputes).where(eq(disputes.id, d.id));
+    expect(row.status).toBe("won");
   });
 });

@@ -103,8 +103,15 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   await page.getByRole("button", { name: "Approve and submit evidence to Braintree" }).click();
   await client.goto(shareUrl);
   await expect(client.getByText("A chargeback was opened on this payment")).toBeVisible();
-  // The test rail decides at once; the sandbox moves a finalized dispute to "disputed" and decides later.
-  await expect(page.getByText(rail === "sandbox" ? "Evidence submitted. View what was sent" : "Outcome: won")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("Evidence submitted. View what was sent")).toBeVisible({ timeout: 60_000 });
+  // The test rail decides at once; the sandbox rules about 25 seconds after evidence is finalized.
+  await expect(async () => {
+    await page.getByRole("button", { name: "Reconcile with Braintree" }).click();
+    await expect(page.getByText("Outcome: won")).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 120_000 });
+  await expect(page.getByText("Sandbox: decided by Braintree's test value in the evidence, not by a bank")).toBeVisible();
+  await client.goto(shareUrl);
+  await expect(client.getByText("It was decided for the freelancer, so the payment stands.")).toBeVisible();
   await page.screenshot({ path: `${shots}/06-dispute.png`, fullPage: true });
 
   // Phone width: no page is wider than the screen.

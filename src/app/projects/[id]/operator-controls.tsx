@@ -195,14 +195,19 @@ const OUTCOME_TONE: Record<string, string> = {
 /** One view of the whole dispute: what happened, the evidence drafted from the signed record, and the outcome. */
 export function DisputePanel({ dispute, signedBy, signedAt, rail }: { dispute: DisputeView; signedBy: string | null; signedAt: string | null; rail: string }) {
   const [pack, setPack] = useState(dispute.evidencePack ?? "");
-  const [compelling, setCompelling] = useState(rail !== "production");
+  const [outcome, setOutcome] = useState<"win" | "lose" | "none">(rail !== "production" ? "win" : "none");
   const { pending, run } = useAction();
   const canSubmit = dispute.status === "open" && !dispute.submittedAt;
   const steps = [
     { icon: FileSignature, label: `${signedBy ?? "The client"} signed off`, detail: signedAt ?? "", done: true },
     { icon: Gavel, label: `Chargeback opened for ${dispute.amount}`, detail: `${(dispute.reason ?? "no reason given").replace(/_/g, " ")}${dispute.replyByDate ? `, reply by ${dispute.replyByDate}` : ""}`, done: true },
     { icon: ShieldCheck, label: "Evidence drafted from the signed record", detail: dispute.submittedAt ? "Approved and submitted to Braintree" : "Waiting for your approval", done: !!dispute.submittedAt },
-    { icon: CheckCircle2, label: dispute.outcomeAt || ["won", "lost"].includes(dispute.status) ? `Outcome: ${dispute.status}` : "Outcome pending", detail: dispute.status.replace(/_/g, " "), done: ["won", "lost"].includes(dispute.status) },
+    {
+      icon: CheckCircle2,
+      label: dispute.outcomeAt || ["won", "lost"].includes(dispute.status) ? `Outcome: ${dispute.status}` : "Outcome pending",
+      detail: ["won", "lost"].includes(dispute.status) && rail !== "production" ? "Sandbox: decided by Braintree's test value in the evidence, not by a bank" : dispute.status.replace(/_/g, " "),
+      done: ["won", "lost"].includes(dispute.status),
+    },
   ];
   return (
     <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/50 dark:bg-red-950/20 p-4 space-y-4 min-w-0">
@@ -225,12 +230,16 @@ export function DisputePanel({ dispute, signedBy, signedAt, rail }: { dispute: D
           <p className="text-sm">This evidence comes only from the acceptance record the client signed. Nothing goes to Braintree until you approve it.</p>
           <Textarea value={pack} onChange={(e) => setPack(e.target.value)} rows={10} className="font-mono text-xs bg-background" aria-label="Evidence pack" />
           {rail !== "production" && (
-            <label className="flex items-start gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" checked={compelling} onChange={(e) => setCompelling(e.target.checked)} className="mt-0.5" />
-              <span>Sandbox only: add Braintree&apos;s test value &ldquo;compelling_evidence&rdquo;, which makes the sandbox rule in our favour. A real dispute is decided by the card issuer.</span>
-            </label>
+            <fieldset className="text-xs text-muted-foreground space-y-1">
+              <legend className="mb-1">Sandbox only: Braintree&apos;s sandbox rules a dispute from a test value sent as its own evidence item. A real dispute is decided by the card issuer.</legend>
+              {([["win", "Win: add \u201ccompelling_evidence\u201d"], ["lose", "Lose: add \u201closing_evidence\u201d"], ["none", "No test value: the dispute stays under review"]] as const).map(([v, l]) => (
+                <label key={v} className="flex items-center gap-2">
+                  <input type="radio" name={`outcome-${dispute.id}`} checked={outcome === v} onChange={() => setOutcome(v)} /> {l}
+                </label>
+              ))}
+            </fieldset>
           )}
-          <Button disabled={pending} onClick={() => run(() => approveDisputeAction(dispute.id, pack, compelling), "Evidence submitted and the dispute finalized")}>
+          <Button disabled={pending} onClick={() => run(() => approveDisputeAction(dispute.id, pack, outcome), "Evidence submitted and the dispute finalized")}>
             {pending ? "Submitting" : "Approve and submit evidence to Braintree"}
           </Button>
         </>
