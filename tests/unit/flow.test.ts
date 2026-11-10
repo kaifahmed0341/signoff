@@ -630,3 +630,46 @@ describe("review 3: concurrent money paths", () => {
     expect(live).toHaveLength(1);
   });
 });
+
+describe("review 3: webhooks and the chargeback simulation", () => {
+  it("F9: a dispute webhook whose read-back fails is not marked handled, and Braintree's retry is processed", async () => {
+    const m0 = await firstMilestone();
+    const m = await fundMilestone(db, rail, m0.id, { nonce: FAKE_NONCES.card });
+    const id = await rail.openDisputeFor(m.transactionId!);
+    const s = await rail.disputeWebhook("dispute_opened", id);
+    let failOnce = true;
+    const flaky = new Proxy(rail, {
+      get(t, p, r) {
+        const v = Reflect.get(t, p, r);
+        if (p === "getDispute")
+          return async (x: string) => {
+            if (failOnce) {
+              failOnce = false;
+              throw new Error("ETIMEDOUT");
+            }
+            return (v as (x: string) => unknown).call(t, x);
+          };
+        return typeof v === "function" ? v.bind(t) : v;
+      },
+    }) as unknown as FakeRail;
+    const first = await handleWebhook(db, flaky, s.signature, s.payload);
+    expect(first.status).toBe(500);
+    const retry = await handleWebhook(db, flaky, s.signature, s.payload);
+    expect(retry.status).toBe(200);
+    expect(retry.outcome).not.toMatch(/duplicate/);
+    expect(await milestoneDisputes(db, m.id)).toHaveLength(1);
+  });
+
+  it("F10: two chargeback simulations at once make one stand-in charge", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    await acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
+    const res = await Promise.allSettled([simulateChargeback(db, rail, m.id, 0), simulateChargeback(db, rail, m.id, 0)]);
+    expect(res.map((r) => r.status).sort()).toEqual(["fulfilled", "rejected"]);
+    const standIns = (await db.select().from(fakeTransactions)).filter((t) => t.opensDispute);
+    expect(standIns).toHaveLength(1);
+    expect((await getMilestone(db, m.id)).disputeSimTransactionId).toBe(standIns[0].id);
+  });
+});

@@ -240,6 +240,14 @@ describe("N6 fresh workspaces do not get fresh budgets", () => {
     expect(refused).toBeInstanceOf(WorkspaceLimitError);
     expect(made).toBeLessThanOrEqual(3);
   });
+  it("F8: a workspace made with the test bypass still counts against its address's AI cap", async () => {
+    const { setEnvForTests } = await import("@/lib/env");
+    setEnvForTests({ APP_URL: origin, AI_PROVIDER: "scripted", LIMIT_AI_CHECKS_PER_ADDRESS: 1, LIMIT_AI_CHECKS_PER_WORKSPACE: 15, LIMIT_WORKSPACES_PER_ADDRESS: 1 });
+    await createDemoWorkspace(db, Date.now(), "office");
+    const bypass = await createDemoWorkspace(db, Date.now(), "office", { skipAddressCount: true });
+    expect((await consume(db, bypass, "ai_check")).ok).toBe(true);
+    expect((await consume(db, bypass, "ai_check")).ok).toBe(false);
+  });
   it("N6: workspaces from one address share one AI budget", async () => {
     setEnvLimit();
     const a = await createDemoWorkspace(db, Date.now(), "shared");

@@ -82,7 +82,8 @@ export async function startDemo() {
     const db = await getDb();
     let w;
     try {
-      w = await createDemoWorkspace(db, Date.now(), (await isE2eBypass()) ? null : hashAddress(await clientAddress()));
+      // The test bypass skips only the per-address workspace count; the address's AI caps still apply.
+      w = await createDemoWorkspace(db, Date.now(), hashAddress(await clientAddress()), { skipAddressCount: await isE2eBypass() });
     } catch (err) {
       if (err instanceof WorkspaceLimitError) redirect("/finished-run?limit=workspaces");
       throw err;

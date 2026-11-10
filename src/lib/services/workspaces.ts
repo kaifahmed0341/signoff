@@ -34,13 +34,13 @@ export function workspaceLimitMessage(now = Date.now()): string {
  * the server at most LIMIT_WORKSPACES_GLOBAL. Per-workspace and global AI caps
  * are the real protection.
  */
-export async function createDemoWorkspace(db: DB, now = Date.now(), ipHash: string | null = null): Promise<Workspace> {
+export async function createDemoWorkspace(db: DB, now = Date.now(), ipHash: string | null = null, opts: { skipAddressCount?: boolean } = {}): Promise<Workspace> {
   await pruneDemoWorkspaces(db, now);
   // Counted per UTC day, like every other cap, so the reset time is exact.
   const since = new Date(startOfDayUtc(now));
   const [all] = await db.select({ n: count() }).from(workspaces).where(and(eq(workspaces.kind, "demo"), gte(workspaces.createdAt, since)));
   if ((all?.n ?? 0) >= env().LIMIT_WORKSPACES_GLOBAL) throw new WorkspaceLimitError(workspaceLimitMessage(now));
-  if (ipHash) {
+  if (ipHash && !opts.skipAddressCount) {
     const [row] = await db.select({ n: count() }).from(workspaces).where(and(eq(workspaces.ipHash, ipHash), gte(workspaces.createdAt, since)));
     if ((row?.n ?? 0) >= env().LIMIT_WORKSPACES_PER_ADDRESS) {
       throw new WorkspaceLimitError(workspaceLimitMessage(now));

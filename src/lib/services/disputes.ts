@@ -37,7 +37,9 @@ export async function upsertDispute(db: DB, rail: PaymentRail, hint: DisputeInfo
   let info: DisputeInfo;
   try {
     info = await rail.getDispute(hint.id);
-  } catch {
+  } catch (err) {
+    // A webhook must not be marked handled when the read-back failed: Braintree retries it.
+    if (source === "webhook") throw err;
     return null;
   }
   const m = await milestoneByTransaction(db, info.transactionId);
@@ -202,12 +204,21 @@ export async function simulateChargeback(db: DB, rail: PaymentRail, milestoneId:
   const m = await getMilestone(db, milestoneId);
   if (m.state !== "released" || !m.acceptanceRecord) throw new ServiceError("A chargeback can be simulated only after the client has signed off and the payment was released", 409);
   if (m.disputeSimTransactionId) throw new ServiceError("A chargeback was already simulated for this milestone", 409);
-  const t = await rail.chargeDisputeCard({ amountCents: m.settledCents || m.amountCents, orderId: `${m.id}-dispute`, description: `Chargeback simulation: ${m.title}` });
+  // Claim first with a placeholder, so two clicks cannot make two stand-in charges.
+  const placeholder = `pending:${Date.now()}:${Math.random().toString(36).slice(2)}`;
   const claimed = await db
     .update(milestones)
-    .set({ disputeSimTransactionId: t.transactionId })
+    .set({ disputeSimTransactionId: placeholder })
     .where(and(eq(milestones.id, m.id), isNull(milestones.disputeSimTransactionId)));
   if (claimed.rowsAffected !== 1) throw new ServiceError("A chargeback was already simulated for this milestone", 409);
+  let t: Awaited<ReturnType<PaymentRail["chargeDisputeCard"]>>;
+  try {
+    t = await rail.chargeDisputeCard({ amountCents: m.settledCents || m.amountCents, orderId: `${m.id}-dispute`, description: `Chargeback simulation: ${m.title}` });
+  } catch (err) {
+    await db.update(milestones).set({ disputeSimTransactionId: null }).where(and(eq(milestones.id, m.id), eq(milestones.disputeSimTransactionId, placeholder)));
+    throw err;
+  }
+  await db.update(milestones).set({ disputeSimTransactionId: t.transactionId }).where(and(eq(milestones.id, m.id), eq(milestones.disputeSimTransactionId, placeholder)));
   await audit(db, {
     projectId: m.projectId,
     milestoneId: m.id,
@@ -244,15 +255,21 @@ export async function handleWebhook(db: DB, rail: PaymentRail, signature: string
   if (claimed.length === 0) return { status: 200, outcome: `duplicate of ${eventId}` };
 
   let outcome = "ignored";
-  if (event.dispute) {
-    const row = await upsertDispute(db, rail, event.dispute, "webhook", new Date(event.timestamp));
-    outcome = row ? `dispute ${row.id} ${row.status}` : "dispute not found at Braintree or not tracked here";
-  } else if (event.transaction) {
-    const m = await milestoneByTransaction(db, event.transaction.transactionId);
-    if (m) {
-      const r = await reconcileMilestone(db, rail, m.id, "braintree");
-      outcome = `reconciled: ${r.action}`;
-    } else outcome = "transaction not tracked here";
+  try {
+    if (event.dispute) {
+      const row = await upsertDispute(db, rail, event.dispute, "webhook", new Date(event.timestamp));
+      outcome = row ? `dispute ${row.id} ${row.status}` : "dispute not tracked here";
+    } else if (event.transaction) {
+      const m = await milestoneByTransaction(db, event.transaction.transactionId);
+      if (m) {
+        const r = await reconcileMilestone(db, rail, m.id, "braintree");
+        outcome = `reconciled: ${r.action}`;
+      } else outcome = "transaction not tracked here";
+    }
+  } catch (err) {
+    // Release the claim and answer 500, so Braintree's retry is processed instead of dropped as a duplicate.
+    await db.delete(webhookEvents).where(eq(webhookEvents.id, eventId));
+    return { status: 500, outcome: `not processed, Braintree will retry: ${err instanceof Error ? err.message : String(err)}` };
   }
   await db.update(webhookEvents).set({ outcome }).where(eq(webhookEvents.id, eventId));
   return { status: 200, outcome };

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test, withBypass } from "./fixtures";
 
 const shots = process.env.E2E_SHOTS_DIR ?? "test-results/screens";
 
@@ -138,9 +139,12 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   }
 });
 
-test("each visitor sees only their own workspace", async ({ browser }) => {
-  const a = await (await browser.newContext()).newPage();
-  const b = await (await browser.newContext()).newPage();
+test("each visitor sees only their own workspace", async ({ browser, baseURL }) => {
+  const ctxA = await browser.newContext({ baseURL });
+  const ctxB = await browser.newContext({ baseURL });
+  for (const c of [ctxA, ctxB]) await withBypass(c, baseURL);
+  const a = await ctxA.newPage();
+  const b = await ctxB.newPage();
   for (const p of [a, b]) {
     await p.goto("/");
     await p.getByRole("button", { name: "Try the live demo" }).click();

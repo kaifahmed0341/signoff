@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const shots = process.env.E2E_SHOTS_DIR ?? "test-results/screens";
 

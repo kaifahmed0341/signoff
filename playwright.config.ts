@@ -17,8 +17,7 @@ export default defineConfig({
     baseURL: remote ?? `http://localhost:${PORT}`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    // Production runs send the test-only bypass for the per-address workspace limit, if one is set.
-    extraHTTPHeaders: process.env.E2E_BYPASS_TOKEN ? { "x-signoff-e2e": process.env.E2E_BYPASS_TOKEN } : undefined,
+    // The test-only bypass header is added per request for the app's own origin, in tests/e2e/fixtures.ts.
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: remote
