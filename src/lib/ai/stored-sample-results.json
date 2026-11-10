@@ -1,0 +1,118 @@
+[
+  {
+    "version": "1",
+    "path": "sample-v1",
+    "model": "google/gemini-3.5-flash-lite",
+    "date": "2026-11-10",
+    "results": [
+      {
+        "criterion": "The page headline is Quarrymoor Bakehouse.",
+        "verdict": "met",
+        "reasoning": "The delivered page displays the correct headline matching the agreed text.",
+        "evidence": [
+          "Quarrymoor Bakehouse"
+        ]
+      },
+      {
+        "criterion": "The page lists the Saturday sourdough class with its start time of 10:00.",
+        "verdict": "not_met",
+        "reasoning": "The page states that the schedule for the Saturday sourdough class is coming soon, rather than listing a 10:00 start time.",
+        "evidence": [
+          "Saturday sourdough (schedule coming soon)"
+        ]
+      },
+      {
+        "criterion": "The page shows the bakery address: 14 Mill Lane, Portland.",
+        "verdict": "not_met",
+        "reasoning": "The delivered page does not contain the bakery address specified in the criteria.",
+        "evidence": []
+      },
+      {
+        "criterion": "Visitors can join the waitlist through an email signup form.",
+        "verdict": "met",
+        "reasoning": "The page includes an email signup form allowing visitors to join the waitlist.",
+        "evidence": [
+          "Join the waitlist with this signup form: [email field: Your email address] [button: Sign up]"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "cheat",
+    "path": "sample-v1-cheat",
+    "model": "google/gemini-3.5-flash-lite",
+    "date": "2026-11-10",
+    "results": [
+      {
+        "criterion": "The page headline is Quarrymoor Bakehouse.",
+        "verdict": "met",
+        "reasoning": "The page headline matches the required Quarrymoor Bakehouse text.",
+        "evidence": [
+          "Quarrymoor Bakehouse"
+        ]
+      },
+      {
+        "criterion": "The page lists the Saturday sourdough class with its start time of 10:00.",
+        "verdict": "not_met",
+        "reasoning": "The delivery states that the Saturday sourdough schedule is coming soon, missing the 10:00 start time.",
+        "evidence": [
+          "Saturday sourdough (schedule coming soon)"
+        ]
+      },
+      {
+        "criterion": "The page shows the bakery address: 14 Mill Lane, Portland.",
+        "verdict": "not_met",
+        "reasoning": "The address 14 Mill Lane, Portland is missing from the delivered page content.",
+        "evidence": []
+      },
+      {
+        "criterion": "Visitors can join the waitlist through an email signup form.",
+        "verdict": "met",
+        "reasoning": "An email signup form is provided for visitors to join the waitlist.",
+        "evidence": [
+          "Join the waitlist with this signup form: [email field: Your email address] [button: Sign up]"
+        ]
+      }
+    ]
+  },
+  {
+    "version": "2",
+    "path": "sample-v2",
+    "model": "google/gemini-3.5-flash-lite",
+    "date": "2026-11-10",
+    "results": [
+      {
+        "criterion": "The page headline is Quarrymoor Bakehouse.",
+        "verdict": "met",
+        "reasoning": "The delivered page correctly displays the headline Quarrymoor Bakehouse as requested.",
+        "evidence": [
+          "Quarrymoor Bakehouse"
+        ]
+      },
+      {
+        "criterion": "The page lists the Saturday sourdough class with its start time of 10:00.",
+        "verdict": "met",
+        "reasoning": "The page includes the Saturday sourdough class and specifies its start time as 10:00.",
+        "evidence": [
+          "Saturday sourdough class, start time 10:00, ends 12:30"
+        ]
+      },
+      {
+        "criterion": "The page shows the bakery address: 14 Mill Lane, Portland.",
+        "verdict": "met",
+        "reasoning": "The bakery address is correctly stated as 14 Mill Lane, Portland.",
+        "evidence": [
+          "Bakery address: 14 Mill Lane, Portland"
+        ]
+      },
+      {
+        "criterion": "Visitors can join the waitlist through an email signup form.",
+        "verdict": "met",
+        "reasoning": "The page provides an email signup form allowing visitors to join the waitlist.",
+        "evidence": [
+          "Join the waitlist with this signup form: [email field: Your email address] [button: Sign up]"
+        ]
+      }
+    ]
+  }
+]

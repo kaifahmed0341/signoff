@@ -208,7 +208,7 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     expect((await verdictsFor(m.id)).every((v) => v.verdict === "met")).toBe(true);
   });
 
-  it("falls back to the scripted checker when the demo workspace's daily AI cap is used up", async () => {
+  it("when the demo workspace's daily AI cap is used up, a sample delivery shows its stored live result, with the cap as the reason", async () => {
     const w = await freshWorld({ APP_URL: origin, AI_PROVIDER: "scripted", LIMIT_AI_CHECKS_PER_WORKSPACE: 1 });
     db = w.db;
     rail = w.rail;
@@ -225,8 +225,9 @@ describe("AI checker with a model (mocked, deterministic)", () => {
     const d2 = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
     await runCheck(db, m.id, d2);
     const second = await latestCheck(db, m.id);
-    expect(second!.model).toBe("scripted");
-    expect(second!.fallbackReason).toMatch(/used its 1 AI checks for today/);
+    // The bundled sample gets the live model's stored result (src/lib/ai/stored-results.ts); a user's own delivery would get the scripted checker.
+    expect(second!.model).toMatch(/stored result of/);
+    expect(second!.fallbackReason).toMatch(/used its 1 AI checks for today.*stored result/);
   });
 
   it("marks a check that never finished as failed and frees the milestone", async () => {

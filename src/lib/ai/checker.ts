@@ -11,6 +11,7 @@ import { consume } from "../services/usage";
 import { getWorkspace } from "../services/workspaces";
 import { MIN_QUOTE_CHARS, SUBJECTIVE, aboutPage, copiesRequirement, finalizeVerdict, isPersonCriterion, normalizeText, verifyEvidence, type CorpusEntry, type RawEvidence, type VerdictValue } from "./evidence";
 import { providerOptions, resolveModel, withModelFallback } from "./model";
+import { isQuotaError, storedResultFor } from "./stored-results";
 import { checkerTools, corpusOf, gatherBaseline, needsExploration, type ToolContext } from "./tools";
 
 /**
@@ -178,7 +179,8 @@ export function summarize(results: { verdict: string }[], label: string): string
  * The report's summary line, built from the verdicts as saved, after the
  * evidence rule has run, so it always matches the verdicts the report shows.
  */
-export function finalSummary(final: { verdict: string }[], label: string, fallbackReason: string | null): string {
+export function finalSummary(final: { verdict: string }[], label: string, fallbackReason: string | null, stored = false): string {
+  if (stored) return `${fallbackReason}. ${summarize(final, label)}`;
   const by = label === "scripted" ? "the scripted checker, which matches key words and uses no AI" : label;
   return `${fallbackReason ? `${fallbackReason}, so the scripted checker ran instead. ` : ""}${summarize(final, by)}`;
 }
@@ -252,12 +254,15 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
     let out: CheckerOutput | null = null;
     let label = resolved.label;
     let fallbackReason: string | null = null;
+    // Set when the live model is out of quota (the app's daily cap or the provider's), the one case a stored sample result may stand in.
+    let quotaReason: string | null = null;
+    let stored = false;
 
     if (!resolved.model) {
       fallbackReason = "No AI key is configured on this server";
     } else {
       const cap = await consume(db, ws, "ai_check");
-      if (!cap.ok) fallbackReason = cap.reason;
+      if (!cap.ok) fallbackReason = quotaReason = cap.reason;
     }
 
     if (resolved.model && !fallbackReason) {
@@ -300,6 +305,17 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
         out = { summary: summarize(crit.map((_, i) => results.find((r) => r.criterionId === `c${i + 1}`) ?? { verdict: "needs_person" }), label), results };
       } catch (err) {
         fallbackReason = `The AI model failed (${shortError(err)})`;
+        if (isQuotaError(err)) quotaReason = "The live AI model is out of quota for now";
+      }
+    }
+
+    if (!out && quotaReason) {
+      const s = storedResultFor({ isSample: p.isSample, links: delivery.links, fileCount: files.length, criteria: crit.map((c) => c.text), appOrigin: new URL(e.APP_URL).origin, why: quotaReason.replace(/[.\s]+$/, "") });
+      if (s) {
+        out = { results: s.results, summary: "" };
+        label = s.label;
+        fallbackReason = s.reason;
+        stored = true;
       }
     }
 
@@ -350,7 +366,7 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
     }
     await db
       .update(checks)
-      .set({ status: "done", model: label, fallbackReason, findings, summary: finalSummary(finalVerdicts, label, fallbackReason), droppedEvidence: droppedTotal, finishedAt: new Date() })
+      .set({ status: "done", model: label, fallbackReason, findings, summary: finalSummary(finalVerdicts, label, fallbackReason, stored), droppedEvidence: droppedTotal, finishedAt: new Date() })
       .where(eq(checks.id, checkId));
     const current = await getMilestone(db, milestoneId);
     if (current.state !== "checking") {

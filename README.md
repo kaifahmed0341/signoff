@@ -70,7 +70,7 @@ Two people use Signoff: the **freelancer** (or agency) doing the work, who runs 
 | Reconcile | `transaction.find` and `dispute.search` compare local state with Braintree; mismatches are flagged, never papered over |
 | Dispute defence | `dispute.find`, `dispute.addTextEvidence` and `dispute.finalize`, after the freelancer approves the pack |
 
-**Run against the live Braintree sandbox on 10 November 2026:** client token; hold with a card, release and settle; partial release; void; retried holds, releases and voids returning the first result; a processor decline refused with Braintree's message; webhook signatures checked with the real keys, with a tampered one refused; the real Drop-in with a card typed into Braintree's frames, in the production browser test; and a chargeback after sign-off answered with evidence and ruled won with one sandbox test value and lost with the other. The live tests are in [`tests/unit/live-braintree.test.ts`](tests/unit/live-braintree.test.ts).
+**Run against the live Braintree sandbox on 10 November 2026:** client token; hold with a card, release and settle; partial release; void; retried holds, releases and voids returning the first result; a processor decline refused with Braintree's message; webhook signatures checked with the real keys, with a tampered one refused; the real Drop-in with a card typed into Braintree's frames, in the production browser test; and a chargeback after sign-off answered with evidence and ruled won with one sandbox test value and lost with the other. That is 9 of 10 live cases passing; the tenth is PayPal, which this merchant account does not accept. The live tests are in [`tests/unit/live-braintree.test.ts`](tests/unit/live-braintree.test.ts).
 
 **PayPal in this sandbox.** The Drop-in's PayPal option fails with Braintree's error `PAYPAL_SANDBOX_ACCOUNT_NOT_LINKED`: "A linked PayPal Sandbox account is required to use PayPal Checkout in Sandbox." The server also refuses Braintree's PayPal test nonce with "Payment instrument type is not accepted by this merchant account". So the hosted demo offers cards only and says why next to the form. Installs with no keys, and CI, run on a built-in test rail ([`fake-rail.ts`](src/lib/payments/fake-rail.ts)) with the same rules as Braintree.
 
@@ -130,6 +130,7 @@ While building the set, two misses came from the evidence rule, not the model: a
 - **Money moves once.** Releasing and voiding first claim the milestone with a compare-and-set, then call Braintree, then settle the claim, so a sign-off and a decline racing each other cannot both reach Braintree.
 - **Secrets.** A production server refuses to start with the development session secret or the public demo passcode. Client links are signed with a per-project secret the freelancer can rotate.
 - **Caps.** Daily limits on AI checks, drafts, change notes and page reads, per demo workspace, per visitor address (120 AI checks a day shared by one address, 25 workspaces a day from one address) and for the whole server (400 AI checks a day). The last fifth of the day's AI checks is kept for workspaces that have not had one yet. Over a cap, or when the model fails, the scripted checker runs and the report says why and when the limit resets (00:00 UTC). Addresses are stored only as a keyed hash.
+- **Stored sample results.** So the demo keeps working through the judging period, the three bundled sample deliveries have the live model's own result stored ([`stored-results.ts`](src/lib/ai/stored-results.ts)). When the live model is out of quota, and only for the exact sample link on the sample project, the checker replays that result, checks its quotes against the page again, and labels the report as a stored result with its date. A delivery of your own never gets a stored result.
 
 ### Agent access over MCP
 
@@ -219,7 +220,7 @@ The cheat pages in `public/samples/` are test fixtures: they hide text and addre
 - Braintree's control panel offers webhook subscriptions for disputes only in this sandbox; transaction changes are picked up by reconcile, which runs on every money action and from the **Reconcile with Braintree** button.
 - Hidden text set by JavaScript, by stylesheets from another origin or `@import`, by pseudo-class or sibling selectors, by text over an image, or by stacking elements is not detected, and neither is a server that shows the checker a different page from visitors.
 - The instruction detector is a pattern list in English. It missed the Spanish case in the eval. The evidence rule, not the detector, is what stops a steered model from passing work.
-- The Gemini free tier allows about 500 requests a day on each lite model, shared with everyone using the demo. A busy day falls back to the scripted checker and says so.
+- The Gemini free tier allows about 500 requests a day on each lite model, shared with everyone using the demo. On a busy day the sample deliveries show their stored result and your own deliveries fall back to the scripted checker; each report says which.
 - Client links do not expire; the freelancer can replace a link to revoke the old one.
 
 ## Licence

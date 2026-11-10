@@ -69,7 +69,9 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
       {c.fallbackReason && (
         <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex gap-2">
           <Info className="size-4 shrink-0" />
-          <span>{c.fallbackReason}, so the scripted checker ran instead. It matches key words and uses no AI. Read its verdicts with more care.</span>
+          <span>
+            {c.model === "scripted" ? `${c.fallbackReason}, so the scripted checker ran instead. It matches key words and uses no AI. Read its verdicts with more care.` : `${c.fallbackReason}.`}
+          </span>
         </div>
       )}
 
@@ -96,7 +98,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
         </div>
       )}
 
-      {c.summary && <p className="px-4 pt-4 text-sm">{c.summary.replace(/^.*so the scripted checker ran instead\. /, "")}</p>}
+      {c.summary && <p className="px-4 pt-4 text-sm">{c.summary.replace(/^.*so the scripted checker ran instead\. /, "").replace(/^.*Its quotes were checked again against the page\. /, "")}</p>}
 
       <ol className="p-4 space-y-4">
         {m.criteria.map((cr, i) => {
