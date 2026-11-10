@@ -1,0 +1,50 @@
+Live Braintree sandbox run, 2026-11-10T20:47Z, commit 2d85ca5.
+Command: LIVE_BRAINTREE=1 pnpm vitest run tests/unit/live-braintree.test.ts --reporter=verbose
+
+
+ RUN  v5.1.0 <repo>
+
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > issues a client token for Drop-in 1503ms
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > holds with a card, releases, settles 5626ms
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > releases part of a hold 2086ms
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > voids a hold 2848ms
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > returns the same hold for a retried order id 2441ms
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > reports a processor decline 1301ms
+ × tests/unit/live-braintree.test.ts > Braintree sandbox > holds with a PayPal one-time nonce 729ms
+   → Authorization failed: Payment instrument type is not accepted by this merchant account.
+PayPal Accounts are not accepted by this merchant account.
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > verifies a signed sample webhook with the real keys 7ms
+stdout | tests/unit/live-braintree.test.ts > Braintree sandbox > a dispute with the test value compelling_evidence as its own evidence item is ruled won
+ruled compelling_evidence won
+
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > a dispute with the test value compelling_evidence as its own evidence item is ruled won 11989ms
+stdout | tests/unit/live-braintree.test.ts > Braintree sandbox > a dispute with the test value losing_evidence as its own evidence item is ruled lost
+ruled losing_evidence lost
+
+ ✓ tests/unit/live-braintree.test.ts > Braintree sandbox > a dispute with the test value losing_evidence as its own evidence item is ruled lost 67603ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/live-braintree.test.ts > Braintree sandbox > holds with a PayPal one-time nonce
+RailError: Authorization failed: Payment instrument type is not accepted by this merchant account.
+PayPal Accounts are not accepted by this merchant account.
+ ❯ unwrap src/lib/payments/braintree-rail.ts:68:11
+     66|     const t = r.transaction;
+     67|     const code = t ? str(t.processorResponseCode) ?? str(t.gatewayReje…
+     68|     throw new RailError(`${what} failed: ${r.message ?? "unknown error…
+       |           ^
+     69|   }
+     70|   return (r.transaction ?? r.dispute ?? r.evidence ?? {}) as Loose;
+ ❯ BraintreeRail.authorize src/lib/payments/braintree-rail.ts:134:19
+ ❯ tests/unit/live-braintree.test.ts:70:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: null, transactionId: null }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 9 passed (10)
+   Start at  01:43:21
+   Duration  96.47s (tests 100%)
+
