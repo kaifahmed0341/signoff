@@ -15,6 +15,7 @@ import {
   latestCheck,
   projectMilestones,
   reconcileMilestone,
+  renewHold,
   requestChanges,
   verifyRecord,
 } from "@/lib/services/milestones";
@@ -501,5 +502,45 @@ describe("dispute outcome from the sandbox test value", () => {
     expect((await handleWebhook(db, rail, s.signature, s.payload)).outcome).toMatch(/won/);
     const [row] = await db.select().from(disputes).where(eq(disputes.id, d.id));
     expect(row.status).toBe("won");
+  });
+});
+
+describe("hold expiry and renewal", () => {
+  it("warns when a hold ends before the due date", async () => {
+    const { cardHoldEndsBeforeDue, holdEndsBeforeDue } = await import("@/lib/domain/milestone-machine");
+    const now = Date.parse("2026-11-10T12:00:00Z");
+    expect(cardHoldEndsBeforeDue(now, "2026-11-30")).toBe(true);
+    expect(cardHoldEndsBeforeDue(now, "2026-11-14")).toBe(false);
+    expect(cardHoldEndsBeforeDue(now, null)).toBe(false);
+    expect(holdEndsBeforeDue(Date.parse("2026-11-17T12:00:00Z"), "2026-11-17")).toBe(true);
+    expect(holdEndsBeforeDue(Date.parse("2026-11-18T12:00:00Z"), "2026-11-17")).toBe(false);
+  });
+
+  it("renews a live hold: new authorization first, then the old one is voided", async () => {
+    const m = await firstMilestone();
+    const funded = await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const old = funded.transactionId!;
+    const renewed = await renewHold(db, rail, m.id, { nonce: FAKE_NONCES.paypal });
+    expect(renewed.state).toBe("funded");
+    expect(renewed.transactionId).not.toBe(old);
+    expect((await rail.getHold(renewed.transactionId!)).status).toBe("authorized");
+    expect((await rail.getHold(old)).status).toBe("voided");
+    expect(renewed.payerLabel).toMatch(/PayPal/);
+    const evs = await db.select().from(auditEvents).where(eq(auditEvents.milestoneId, m.id));
+    expect(evs.map((e) => e.type)).toContain("hold.renewed");
+  });
+
+  it("a declined renewal leaves the old hold in place", async () => {
+    const m = await firstMilestone();
+    const funded = await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    await expect(renewHold(db, rail, m.id, { nonce: FAKE_NONCES.declined })).rejects.toThrow(/old hold is unchanged/);
+    const after = await getMilestone(db, m.id);
+    expect(after.transactionId).toBe(funded.transactionId);
+    expect((await rail.getHold(funded.transactionId!)).status).toBe("authorized");
+  });
+
+  it("there is nothing to renew before funding or after release", async () => {
+    const m = await firstMilestone();
+    await expect(renewHold(db, rail, m.id, { nonce: FAKE_NONCES.card })).rejects.toThrow(/no live hold/);
   });
 });

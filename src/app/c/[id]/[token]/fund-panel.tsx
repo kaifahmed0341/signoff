@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Copy, CreditCard, Lock, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { clientTokenAction, fundAction } from "@/app/c/actions";
+import { clientTokenAction, fundAction, renewHoldAction } from "@/app/c/actions";
 import { SANDBOX_QUICK_NONCE, SANDBOX_TEST_CARD } from "@/lib/payments/rail";
 
 type DropinInstance = {
@@ -16,7 +16,7 @@ type DropinInstance = {
   clearSelectedPaymentMethod: () => void;
 };
 
-type Props = { projectId: string; token: string; milestoneId: string; amount: string; amountLabel: string; currency: string; rail: string; paypalEnabled?: boolean };
+type Props = { projectId: string; token: string; milestoneId: string; amount: string; amountLabel: string; currency: string; rail: string; paypalEnabled?: boolean; renew?: boolean };
 
 export function FundPanel(props: Props) {
   return props.rail === "fake" ? <TestCheckout {...props} /> : <DropinCheckout {...props} />;
@@ -40,14 +40,14 @@ function useFund(props: Props, onDecline?: () => void) {
   const fund = (nonce: string, deviceData?: string) =>
     start(async () => {
       setFailure(null);
-      const r = await fundAction({ projectId: props.projectId, token: props.token, milestoneId: props.milestoneId, nonce, deviceData });
+      const r = await (props.renew ? renewHoldAction : fundAction)({ projectId: props.projectId, token: props.token, milestoneId: props.milestoneId, nonce, deviceData });
       if (!r.ok) {
         // Kept on the page until the next attempt, and the failed card is cleared from the form.
         setFailure(r.error);
         onDecline?.();
         return;
       }
-      toast.success(`${props.amountLabel} is on hold. Nothing has been charged.`);
+      toast.success(props.renew ? `The hold is renewed and the old one released. Nothing has been charged.` : `${props.amountLabel} is on hold. Nothing has been charged.`);
       router.refresh();
     });
   return { fund, pending, failure };
@@ -136,7 +136,7 @@ function DropinCheckout(props: Props) {
           }
         }}
       >
-        <Lock /> {pending ? "Placing the hold" : `Hold ${props.amountLabel}`}
+        <Lock /> {pending ? "Placing the hold" : props.renew ? `Renew the hold of ${props.amountLabel}` : `Hold ${props.amountLabel}`}
       </Button>
       {sandbox && (
         <div className="rounded-lg border border-dashed p-3 text-xs space-y-2">

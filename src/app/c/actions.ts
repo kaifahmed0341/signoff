@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { getRail } from "@/lib/payments";
 import { draftChangeNote } from "@/lib/ai/checker";
-import { ServiceError, acceptAndRelease, declineMilestone, fundMilestone, getMilestone, projectFromShareLink, requestChanges } from "@/lib/services/milestones";
+import { ServiceError, acceptAndRelease, declineMilestone, fundMilestone, renewHold, getMilestone, projectFromShareLink, requestChanges } from "@/lib/services/milestones";
 
 type R<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
@@ -55,6 +55,18 @@ export async function fundAction(raw: { projectId: string; token: string; milest
     const input = parse(fundInput, raw);
     const { db } = await authorizedMilestone(input.milestoneId, input.projectId, input.token);
     await fundMilestone(db, getRail(), input.milestoneId, { nonce: input.nonce, deviceData: input.deviceData });
+    done(input.projectId, input.token);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function renewHoldAction(raw: { projectId: string; token: string; milestoneId: string; nonce: string; deviceData?: string }): Promise<R> {
+  try {
+    const input = parse(fundInput, raw);
+    const { db } = await authorizedMilestone(input.milestoneId, input.projectId, input.token);
+    await renewHold(db, getRail(), input.milestoneId, { nonce: input.nonce, deviceData: input.deviceData });
     done(input.projectId, input.token);
     return { ok: true };
   } catch (err) {

@@ -10,10 +10,16 @@ import { getDb } from "@/lib/db";
 import { env, railMode } from "@/lib/env";
 import { projectFromShareLink } from "@/lib/services/milestones";
 import { centsToAmount } from "@/lib/payments/rail";
+import { CARD_HOLD_DAYS, RENEWABLE, cardHoldEndsBeforeDue, holdEndsBeforeDue, holdHealth, type MilestoneState } from "@/lib/domain/milestone-machine";
 import { day, money } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
 import { recoverStuckChecks } from "@/lib/ai/checker";
 import { DecisionPanel } from "./decision-panel";
+
+/** The time this page is rendered on the server. */
+function requestTime() {
+  return Date.now();
+}
 import { FundOnDemand, FundPanel } from "./fund-panel";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +36,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   const rail = railMode();
   const total = milestones.reduce((a, m) => a + m.amountCents, 0);
   const released = milestones.reduce((a, m) => a + m.settledCents, 0);
+  const now = requestTime();
   const firstToFund = milestones.find((m) => m.state === "awaiting_funding" || m.state === "hold_expired")?.id;
 
   return (
@@ -87,12 +94,24 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                             Your {rail === "sandbox" && !env().BRAINTREE_PAYPAL_ENABLED ? "card" : "PayPal account or card"} is authorized for {money(m.amountCents, project.currency)}. The money is held, not charged. It is charged only if you accept the work.
                             If you decline, the hold is voided. A hold lasts about a week on cards and longer on PayPal, and this page shows the exact expiry.
                           </p>
+                          {cardHoldEndsBeforeDue(now, m.dueDate) && (
+                            <p role="status" className="mt-2 text-amber-800 dark:text-amber-300">
+                              This milestone is due {day(m.dueDate!)}, more than {CARD_HOLD_DAYS} days away, so a card hold placed now ends before the due date. You can renew the hold here when it nears its end. Renewing places a new hold and releases the old one, and nothing is charged.
+                            </p>
+                          )}
                         </div>
                       </div>
                       <FundOnDemand open={m.id === firstToFund} label={`Fund this milestone: ${money(m.amountCents, project.currency)}`}>
                         <FundPanel projectId={project.id} token={token} milestoneId={m.id} amount={centsToAmount(m.amountCents)} amountLabel={money(m.amountCents, project.currency)} currency={project.currency} rail={rail} paypalEnabled={env().BRAINTREE_PAYPAL_ENABLED} />
                       </FundOnDemand>
                     </div>
+                  )}
+                  {RENEWABLE.includes(m.state as MilestoneState) && m.transactionId && !m.disputeSimTransactionId && (holdHealth(now, m.authExpiresAt?.getTime()) === "expiring_soon" || holdEndsBeforeDue(m.authExpiresAt?.getTime(), m.dueDate)) && (
+                    <details className="rounded-xl border bg-background p-4 text-sm" open={holdHealth(now, m.authExpiresAt?.getTime()) === "expiring_soon"}>
+                      <summary className="cursor-pointer font-medium">Renew the hold before it ends</summary>
+                      <p className="text-muted-foreground mt-2 mb-3">A hold cannot be extended. Renewing places a new hold of the same amount with the card you enter now, then releases the old one, so the money stays held the whole time. Nothing is charged.</p>
+                      <FundPanel renew projectId={project.id} token={token} milestoneId={m.id} amount={centsToAmount(m.heldCents || m.amountCents)} amountLabel={money(m.heldCents || m.amountCents, project.currency)} currency={project.currency} rail={rail} paypalEnabled={env().BRAINTREE_PAYPAL_ENABLED} />
+                    </details>
                   )}
                   {m.state === "funded" && <p className="text-sm text-muted-foreground">Your money is held. You will see an evidence report here when the work is delivered.</p>}
                   {m.state === "changes_requested" && <p className="text-sm text-muted-foreground">You asked for changes. The hold stays in place until the next delivery is checked.</p>}

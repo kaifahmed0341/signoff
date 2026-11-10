@@ -17,6 +17,7 @@ import {
   revertClaim,
   holdHealth,
   isHoldActive,
+  RENEWABLE,
   transition,
   type MilestoneEvent,
   type MilestoneState,
@@ -255,6 +256,78 @@ export async function fundMilestone(
     data: { transactionId: hold.transactionId, status: hold.status, expiresAt: hold.authorizationExpiresAt, orderId: `${m.id}-${attempt}`, rail: rail.mode },
   });
   return next;
+}
+
+/**
+ * Renews a live hold with the client's consent: a new authorization from the payment method the
+ * client enters now, then a void of the old one, so the money is never unheld in between.
+ * Braintree cannot extend an authorization, so this is the nearest honest thing.
+ */
+export async function renewHold(
+  db: DB,
+  rail: PaymentRail,
+  milestoneId: string,
+  input: { nonce: string; deviceData?: string },
+): Promise<Milestone> {
+  const m = await getMilestone(db, milestoneId);
+  if (!RENEWABLE.includes(m.state as MilestoneState) || !m.transactionId) throw new ServiceError(`This milestone is ${m.state}, so there is no live hold to renew`, 409);
+  if (m.disputeSimTransactionId) throw new ServiceError("This milestone already has a sandbox chargeback", 409);
+  const old = m.transactionId;
+  const attempt = m.fundingAttempt + 1;
+  await db.update(milestones).set({ fundingAttempt: attempt }).where(eq(milestones.id, m.id));
+  let hold: Hold;
+  try {
+    hold = await rail.authorize({ nonce: input.nonce, deviceData: input.deviceData, amountCents: m.heldCents || m.amountCents, orderId: `${m.id}-${attempt}`, description: m.title });
+  } catch (err) {
+    const e = err instanceof RailError ? err : new RailError(String(err));
+    await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "hold.renew_failed", message: `The new hold was not placed: ${e.message}. The old hold is unchanged.`, data: { code: e.code, rail: rail.mode } });
+    throw new ServiceError(`${e.message} The old hold is unchanged.`, 402);
+  }
+  const undo = async () => {
+    try {
+      await rail.void(hold.transactionId);
+    } catch {}
+  };
+  if (hold.status !== "authorized") {
+    await undo();
+    throw new ServiceError("That card was charged at once instead of held, so the charge was voided. The old hold is unchanged.", 402);
+  }
+  const now = new Date();
+  const swap = await db
+    .update(milestones)
+    .set({
+      transactionId: hold.transactionId,
+      transactionStatus: hold.status,
+      paymentInstrument: hold.instrument,
+      payerLabel: hold.payerLabel,
+      heldCents: hold.amountCents,
+      authorizedAt: new Date(hold.createdAt ?? Date.now()),
+      authExpiresAt: hold.authorizationExpiresAt ? new Date(hold.authorizationExpiresAt) : null,
+      updatedAt: now,
+    })
+    .where(and(eq(milestones.id, m.id), eq(milestones.transactionId, old), inArray(milestones.state, RENEWABLE)));
+  if (swap.rowsAffected !== 1) {
+    await undo();
+    throw new ServiceError("The milestone changed while the hold was being renewed. The new hold was voided and the old one is unchanged.", 409);
+  }
+  let oldVoided = false;
+  try {
+    oldVoided = (await rail.void(old)).status === "voided";
+  } catch {
+    oldVoided = false;
+  }
+  if (!oldVoided) {
+    await db.update(milestones).set({ attention: `The old hold ${old} could not be voided after the renewal. It is never charged and lapses on its own.` }).where(eq(milestones.id, m.id));
+  }
+  await audit(db, {
+    projectId: m.projectId,
+    milestoneId: m.id,
+    actor: "client",
+    type: "hold.renewed",
+    message: `Client renewed the hold: ${money(hold.amountCents, hold.currency)} held again with ${hold.payerLabel ?? hold.instrument}${hold.authorizationExpiresAt ? ` until ${new Date(hold.authorizationExpiresAt).toISOString().slice(0, 10)}` : ""}. The old hold ${old} was ${oldVoided ? "voided" : "left to lapse"}. Not charged.`,
+    data: { transactionId: hold.transactionId, previousTransactionId: old, oldVoided, expiresAt: hold.authorizationExpiresAt, rail: rail.mode },
+  });
+  return getMilestone(db, m.id);
 }
 
 // ---------------------------------------------------------------- client: decide

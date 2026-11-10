@@ -113,6 +113,29 @@ export const EXPIRY_WARNING_MS = 24 * 60 * 60 * 1000;
 
 export type HoldHealth = "active" | "expiring_soon" | "expired";
 
+/** A card authorization lasts about this long on Braintree; PayPal holds last longer. */
+export const CARD_HOLD_DAYS = 7;
+
+/** End of the due day, in ms, or null when there is no due date. */
+export function dueEndMs(dueDate: string | null | undefined): number | null {
+  if (!dueDate || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return null;
+  return Date.parse(`${dueDate}T23:59:59Z`);
+}
+
+/** True when a hold that ends at `authExpiresAt` lapses before the milestone is due. */
+export function holdEndsBeforeDue(authExpiresAt: number | null | undefined, dueDate: string | null | undefined): boolean {
+  const due = dueEndMs(dueDate);
+  return !!authExpiresAt && due !== null && authExpiresAt < due;
+}
+
+/** At funding time: a card hold placed now would lapse before the due date. */
+export function cardHoldEndsBeforeDue(now: number, dueDate: string | null | undefined): boolean {
+  return holdEndsBeforeDue(now + CARD_HOLD_DAYS * 24 * 60 * 60 * 1000, dueDate);
+}
+
+/** States in which the client can renew a live hold. */
+export const RENEWABLE: MilestoneState[] = ["funded", "in_review", "changes_requested"];
+
 export function holdHealth(now: number, authExpiresAt: number | null | undefined): HoldHealth {
   if (!authExpiresAt) return "active";
   if (now >= authExpiresAt) return "expired";

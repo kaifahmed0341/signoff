@@ -1,5 +1,5 @@
 import { Clock, Lock, ShieldAlert } from "lucide-react";
-import { holdHealth, isHoldActive, type MilestoneState } from "@/lib/domain/milestone-machine";
+import { dueEndMs, holdEndsBeforeDue, holdHealth, isHoldActive, type MilestoneState } from "@/lib/domain/milestone-machine";
 
 function holdHealthNow(exp: number | null) {
   return holdHealth(Date.now(), exp);
@@ -24,6 +24,11 @@ export function HoldInfo({ m, currency }: { m: MilestoneView; currency: string }
           </span>
         )}
         <span className="font-mono text-xs text-muted-foreground">txn {m.transactionId}</span>
+        {holdEndsBeforeDue(exp, m.dueDate) && (
+          <span role="status" className="basis-full text-amber-800 dark:text-amber-300">
+            This hold ends {exp ? day(exp) : ""}, before the milestone is due on {day(dueEndMs(m.dueDate)!)}. If the work is not signed off by then, the client can renew the hold on their page, and nothing is charged by renewing.
+          </span>
+        )}
       </div>
     );
   }

@@ -221,3 +221,28 @@ test("a coding agent works the freelancer's side over MCP, until its token is re
   await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
   await expect(connect()).rejects.toThrow();
 });
+
+test("a hold that ends before the due date is flagged, and the client renews it", async ({ page, context }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try the live demo" }).click();
+  await expect(page.getByText("Demo workspace.")).toBeVisible();
+  await page.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
+  const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
+  const rail = await railOf(page);
+  const client = await context.newPage();
+  await client.goto(shareUrl);
+  // Milestone 2 is due in 12 days, past a card hold. Its card form opens on demand.
+  const m2 = client.locator("section").nth(1);
+  await expect(m2.getByText(/a card hold placed now ends before the due date/)).toBeVisible();
+  await m2.getByRole("button", { name: /^Fund this milestone: / }).click();
+  const quick = rail === "sandbox" ? "Quick hold with the test card" : "Card (test nonce)";
+  await m2.getByRole("button", { name: quick }).click();
+  await expect(m2.getByText("Your money is held.")).toBeVisible({ timeout: 60_000 });
+  await expect(m2.getByText(/This hold ends .* before the milestone is due/)).toBeVisible();
+  const before = (await m2.getByText(/^txn /).textContent())!.trim();
+  await m2.getByText("Renew the hold before it ends").click();
+  await m2.getByRole("button", { name: quick }).click();
+  await expect(m2.getByText(/^txn /)).not.toHaveText(before, { timeout: 60_000 });
+  await page.reload();
+  await expect(page.getByText(/Client renewed the hold/).first()).toBeVisible();
+});
