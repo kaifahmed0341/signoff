@@ -51,9 +51,11 @@ export default async function Dashboard() {
           <p className="text-muted-foreground text-sm mt-1">Every milestone, its hold and where it stands.</p>
         </div>
         <div className="flex gap-2">
-          <form action={loadSampleProject}>
-            <Button type="submit" variant="outline" size="lg"><FlaskConical /> Load sample project</Button>
-          </form>
+          {!projects.some((p) => p.isSample) && (
+            <form action={loadSampleProject}>
+              <Button type="submit" variant="outline" size="lg"><FlaskConical /> Load sample project</Button>
+            </form>
+          )}
           <Link href="/projects/new" className={buttonVariants({ size: "lg" })}><Plus /> New project</Link>
         </div>
       </div>
@@ -98,7 +100,10 @@ export default async function Dashboard() {
                     <div className="text-sm font-medium">{money(total, p.currency)}</div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    {ms.map((m) => <StateBadge key={m.id} state={m.state} />)}
+                    {[...new Set(ms.map((m) => m.state))].map((st) => {
+                      const n = ms.filter((m) => m.state === st).length;
+                      return <StateBadge key={st} state={st} count={n} />;
+                    })}
                   </div>
                 </Link>
               );

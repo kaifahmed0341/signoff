@@ -95,7 +95,7 @@ export const STATE_LABEL: Record<MilestoneState, string> = {
   awaiting_funding: "Awaiting funding",
   funded: "Funded, money held",
   checking: "Checking delivery",
-  in_review: "Ready for sign-off",
+  in_review: "Checked, client to decide",
   releasing: "Releasing payment",
   voiding: "Releasing the hold",
   changes_requested: "Changes requested",
@@ -142,9 +142,10 @@ export function remoteOutcome(status: string): RemoteOutcome {
   }
 }
 
-/** Client-facing labels: the client paid, the operator was paid. */
+/** Client-facing labels: the client paid, the freelancer was paid. */
 export const CLIENT_STATE_LABEL: Partial<Record<MilestoneState, string>> = {
   released: "Paid",
   funded: "Funded, money held",
   awaiting_funding: "Fund to start",
+  in_review: "Checked, your decision",
 };

@@ -48,7 +48,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ l
     </form>
   ) : (
     <Link href="/login" className={buttonVariants({ size: "lg", className: "h-11 px-5 text-base" })}>
-      Open the operator console <ArrowRight />
+      Open the freelancer console <ArrowRight />
     </Link>
   );
 
@@ -129,7 +129,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ l
         <section className="mx-auto max-w-6xl px-4 pb-16 grid md:grid-cols-2 gap-4">
           <div className="rounded-xl border bg-card p-6">
             <div className="flex items-center gap-2 font-medium"><Ban className="size-5 text-primary" /> The AI cannot move money</div>
-            <p className="mt-2 text-sm text-muted-foreground">The checker&apos;s tools only read. Money moves only when a person clicks: the client signing off or declining, or the operator approving dispute evidence.</p>
+            <p className="mt-2 text-sm text-muted-foreground">The checker&apos;s tools only read. Money moves only when a person clicks: the client signing off or declining, or the freelancer approving dispute evidence.</p>
           </div>
           <div className="rounded-xl border bg-card p-6">
             <div className="flex items-center gap-2 font-medium"><Quote className="size-5 text-primary" /> Every quote is checked in code</div>
@@ -180,7 +180,7 @@ function HeroCard() {
           <div className="text-xs uppercase tracking-wide text-muted-foreground">Milestone 1 of 2</div>
           <div className="mt-1 font-medium">Landing page</div>
         </div>
-        <span className="rounded-full bg-indigo-100 text-indigo-900 px-2.5 py-0.5 text-xs font-medium">Ready for sign-off</span>
+        <span className="rounded-full bg-amber-100 text-amber-900 px-2.5 py-0.5 text-xs font-medium whitespace-nowrap">2 of 4 met</span>
       </div>
       <div className="mt-4 flex items-baseline gap-2">
         <span className="text-3xl font-semibold">$450.00</span>

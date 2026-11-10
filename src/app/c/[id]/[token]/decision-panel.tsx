@@ -30,13 +30,15 @@ export function DecisionPanel(p: Props) {
       router.refresh();
     });
 
-  const tab = (k: typeof mode, label: string, Icon: typeof CheckCircle2) => (
+  const tab = (k: typeof mode, label: string, short: string, Icon: typeof CheckCircle2) => (
     <button
       type="button"
+      aria-label={label}
+      aria-pressed={mode === k}
       onClick={() => setMode(k)}
-      className={`flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-colors ${mode === k ? "bg-background shadow-xs border-border" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+      className={`min-w-0 inline-flex items-center justify-center gap-1.5 rounded-lg px-2 sm:px-3 py-2 text-sm font-medium border transition-colors ${mode === k ? "bg-background shadow-xs border-border" : "border-transparent text-muted-foreground hover:text-foreground"}`}
     >
-      <Icon className="size-4" /> {label}
+      <Icon className="size-4 shrink-0" /> <span className="sm:hidden">{short}</span><span className="hidden sm:inline">{label}</span>
     </button>
   );
 
@@ -46,10 +48,10 @@ export function DecisionPanel(p: Props) {
         <h3 className="font-semibold">Your decision</h3>
         <p className="text-sm text-muted-foreground">{p.heldLabel} is on hold. It moves only when you choose.</p>
       </div>
-      <div className="flex gap-1 rounded-xl bg-muted p-1">
-        {tab("accept", "Accept and release", CheckCircle2)}
-        {tab("changes", "Request changes", MessageSquareWarning)}
-        {tab("decline", "Decline", XCircle)}
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
+        {tab("accept", "Accept and release", "Accept", CheckCircle2)}
+        {tab("changes", "Request changes", "Changes", MessageSquareWarning)}
+        {tab("decline", "Decline", "Decline", XCircle)}
       </div>
 
       {mode === "accept" && (
@@ -59,9 +61,13 @@ export function DecisionPanel(p: Props) {
             <Label htmlFor="signer">Type your full name to sign off</Label>
             <Input id="signer" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={partial} onChange={(e) => setPartial(e.target.checked)} /> Release only part of the hold
-          </label>
+          <fieldset className="space-y-1.5">
+            <legend className="text-sm font-medium">How much to release</legend>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" aria-pressed={!partial} onClick={() => setPartial(false)} className={`rounded-lg border px-3 py-2 text-sm ${!partial ? "border-primary bg-primary/5 font-medium" : "text-muted-foreground"}`}>All of {p.heldLabel}</button>
+              <button type="button" aria-pressed={partial} onClick={() => setPartial(true)} className={`rounded-lg border px-3 py-2 text-sm ${partial ? "border-primary bg-primary/5 font-medium" : "text-muted-foreground"}`}>Part of it</button>
+            </div>
+          </fieldset>
           {partial && (
             <div className="space-y-1.5">
               <Label htmlFor="amt">Amount to release</Label>

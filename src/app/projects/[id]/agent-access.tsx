@@ -10,7 +10,7 @@ import { createAgentTokenAction, revokeAgentTokenAction } from "@/app/actions";
 
 type TokenRow = { id: string; label: string; createdAt: string; lastUsedAt: string | null; revokedAt: string | null };
 
-/** Lets the operator give a coding agent access to this project's freelancer side over MCP. */
+/** Lets the freelancer give a coding agent access to this project's freelancer side over MCP. */
 export function AgentAccess({ projectId, endpoint, tokens }: { projectId: string; endpoint: string; tokens: TokenRow[] }) {
   const router = useRouter();
   const [label, setLabel] = useState("Coding agent");

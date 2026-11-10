@@ -19,8 +19,8 @@ export default function LoginPage() {
         <div className="rounded-xl border bg-card p-6 shadow-sm">
           {passcodeLoginEnabled() ? (
             <>
-              <h1 className="text-lg font-semibold">Operator sign in</h1>
-              <p className="mt-1 text-sm text-muted-foreground">This install belongs to one freelancer or agency, the operator. Clients never sign in: they use the link the operator sends.</p>
+              <h1 className="text-lg font-semibold">Freelancer sign in</h1>
+              <p className="mt-1 text-sm text-muted-foreground">This install belongs to one freelancer or agency. Clients do not need an account. Clients never sign in: they use the link the freelancer sends.</p>
               <LoginForm demoHint={showHint} />
             </>
           ) : (

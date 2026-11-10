@@ -14,7 +14,7 @@ import { day, money } from "@/lib/web/format";
 import { loadProjectView } from "@/lib/web/views";
 import { recoverStuckChecks } from "@/lib/ai/checker";
 import { DecisionPanel } from "./decision-panel";
-import { FundPanel } from "./fund-panel";
+import { FundOnDemand, FundPanel } from "./fund-panel";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -30,6 +30,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   const rail = railMode();
   const total = milestones.reduce((a, m) => a + m.amountCents, 0);
   const released = milestones.reduce((a, m) => a + m.settledCents, 0);
+  const firstToFund = milestones.find((m) => m.state === "awaiting_funding" || m.state === "hold_expired")?.id;
 
   return (
     <div className="min-h-screen">
@@ -88,7 +89,9 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                           </p>
                         </div>
                       </div>
-                      <FundPanel projectId={project.id} token={token} milestoneId={m.id} amount={centsToAmount(m.amountCents)} amountLabel={money(m.amountCents, project.currency)} currency={project.currency} rail={rail} paypalEnabled={env().BRAINTREE_PAYPAL_ENABLED} />
+                      <FundOnDemand open={m.id === firstToFund} label={`Fund this milestone: ${money(m.amountCents, project.currency)}`}>
+                        <FundPanel projectId={project.id} token={token} milestoneId={m.id} amount={centsToAmount(m.amountCents)} amountLabel={money(m.amountCents, project.currency)} currency={project.currency} rail={rail} paypalEnabled={env().BRAINTREE_PAYPAL_ENABLED} />
+                      </FundOnDemand>
                     </div>
                   )}
                   {m.state === "funded" && <p className="text-sm text-muted-foreground">Your money is held. You will see an evidence report here when the work is delivered.</p>}

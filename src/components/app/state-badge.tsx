@@ -15,12 +15,13 @@ const TONE: Record<MilestoneState, string> = {
   hold_expired: "bg-red-100 text-red-900 dark:bg-red-900/30 dark:text-red-200",
 };
 
-export function StateBadge({ state, className, audience = "operator" }: { state: string; className?: string; audience?: "operator" | "client" }) {
+export function StateBadge({ state, className, audience = "operator", count = 1 }: { state: string; className?: string; audience?: "operator" | "client"; count?: number }) {
   const s = state as MilestoneState;
   return (
     <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap", TONE[s] ?? TONE.draft, className)}>
       {(s === "checking" || s === "releasing" || s === "voiding") && <span className="mr-1.5 size-1.5 rounded-full bg-current animate-pulse" />}
       {(audience === "client" ? CLIENT_STATE_LABEL[s] : undefined) ?? STATE_LABEL[s] ?? state}
+      {count > 1 && <span className="ml-1 opacity-70">x{count}</span>}
     </span>
   );
 }

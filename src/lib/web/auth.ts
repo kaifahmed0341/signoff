@@ -8,7 +8,7 @@ import { sign, verifySignature } from "../services/ids";
 import { getWorkspace, touchWorkspace } from "../services/workspaces";
 
 /**
- * The operator session is a signed cookie naming a workspace. Self-hosted
+ * The freelancer session is a signed cookie naming a workspace. Self-hosted
  * installs sign in with a passcode to the one owner workspace. The public demo
  * gives each visitor a private demo workspace with one click.
  */

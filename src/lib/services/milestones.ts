@@ -400,7 +400,7 @@ export async function acceptAndRelease(
     type: "hold.released",
     message: partial
       ? `Released ${money(amount, hold.currency)} of ${money(m.heldCents, hold.currency)}. The rest of the hold drops off.`
-      : `Released ${money(amount, hold.currency)} to the operator`,
+      : `Released ${money(amount, hold.currency)} to the freelancer`,
     data: { transactionId: hold.transactionId, status: hold.status, receiptNumber },
   });
   return next;
@@ -489,7 +489,7 @@ export async function reconcileMilestone(db: DB, rail: PaymentRail, milestoneId:
       action = "undid an interrupted decline; the hold is still in place";
     } else attention = `A decline was in progress but Braintree reports the transaction as ${hold.status}.`;
   } else if (state === "released" && remote !== "released") {
-    attention = `This milestone is released here, but Braintree reports the transaction as ${hold.status}. The operator was not paid. Check the Braintree control panel.`;
+    attention = `This milestone is released here, but Braintree reports the transaction as ${hold.status}. The freelancer was not paid. Check the Braintree control panel.`;
   } else if (state === "declined" && remote === "released") {
     attention = `This milestone was declined here, but Braintree reports the transaction as ${hold.status}. The client may have been charged.`;
   } else if (isHoldActive(state) && (remote === "expired" || holdHealth(Date.now(), m.authExpiresAt?.getTime()) === "expired")) {

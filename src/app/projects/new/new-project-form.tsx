@@ -34,7 +34,8 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
       if (!r.ok) return void toast.error(r.error);
       const plan = r.data!;
       if (plan.fallbackReason) toast.info(`${plan.fallbackReason}, so the scripted planner drafted these. It only understands scopes written as Milestone lines with bullets.`);
-      setName((n) => n || plan.projectName);
+      // A name the freelancer typed always wins over the planner's suggestion.
+      setName((n) => (n.trim() ? n : plan.projectName));
       setMs(plan.milestones.map((m) => ({ title: m.title, deliverable: m.deliverable, amount: (m.amountCents / 100).toFixed(2), dueDate: m.dueDate ?? "", criteria: m.criteria })));
       if (plan.unverifiedQuotes) toast.warning(`${plan.unverifiedQuotes} criterion quote(s) were not found in the scope. They are flagged below.`);
       else toast.success(`Drafted ${plan.milestones.length} milestones. Every quote was found in the scope.`);
@@ -71,7 +72,7 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
       <div className="rounded-xl border bg-card p-5 space-y-4 lg:sticky lg:top-20">
         <div className="flex items-center justify-between">
           <Label htmlFor="scope">Scope of work</Label>
-          <button type="button" className="text-xs text-primary hover:underline" onClick={() => { setScope(sampleScope); setClient("Larkspur Pottery Studio"); }}>Use the sample scope</button>
+          <button type="button" className="text-xs text-primary hover:underline" onClick={() => { setScope(sampleScope); setClient((c) => c || "Larkspur Pottery Studio"); }}>Use the sample scope</button>
         </div>
         <Textarea id="scope" value={scope} onChange={(e) => setScope(e.target.value)} rows={16} placeholder="Paste the scope, proposal or statement of work" className="font-mono text-xs min-h-56 lg:min-h-96" />
         <Button onClick={draft} disabled={drafting || scope.trim().length < 40} className="w-full" size="lg">
@@ -118,7 +119,7 @@ export function NewProjectForm({ sampleScope, modelLabel }: { sampleScope: strin
                 </div>
               ))}
               {m.criteria.length < 5 && (
-                <Button variant="outline" size="sm" onClick={() => update(i, { criteria: [...m.criteria, { text: "", sourceQuote: "(added by the operator)", quoteVerified: false }] })}><Plus /> Add criterion</Button>
+                <Button variant="outline" size="sm" onClick={() => update(i, { criteria: [...m.criteria, { text: "", sourceQuote: "(added by the freelancer)", quoteVerified: false }] })}><Plus /> Add criterion</Button>
               )}
             </div>
           </div>

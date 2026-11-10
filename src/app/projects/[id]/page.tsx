@@ -45,7 +45,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const rows: TimelineRow[] = events.map((e) => ({
     iso: e.createdAt.toISOString(),
     at: when(e.createdAt).replace(" UTC", ""),
-    actor: e.actor,
+    actor: e.actor === "operator" ? "freelancer" : e.actor,
     milestone: milestones.find((m) => m.id === e.milestoneId)?.title ?? "",
     type: e.type,
     message: e.message,

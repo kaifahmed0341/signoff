@@ -8,22 +8,34 @@ async function railOf(page: Page): Promise<string> {
   return ((await r.json()) as { rail: string }).rail;
 }
 
+/** Types a card into the real Drop-in's frames on the first milestone and asks for the hold. */
+async function holdWithCard(client: Page, card: string) {
+  const m1 = client.locator("section").first();
+  await m1.locator(".braintree-dropin").waitFor({ timeout: 60_000 });
+  const cardOption = m1.getByText("Card", { exact: true });
+  if (await cardOption.isVisible().catch(() => false)) await cardOption.click();
+  const field = (n: string) => m1.frameLocator(`iframe[name^='braintree-hosted-field-${n}']`).locator("input:not(.autofill-field)");
+  await field("number").fill(card);
+  await field("expirationDate").fill("12/30");
+  for (const n of ["cvv", "postalCode"]) if (await m1.locator(`iframe[name^='braintree-hosted-field-${n}']`).count()) await field(n).fill(n === "cvv" ? "123" : "12345");
+  await m1.getByRole("button", { name: /^Hold \$/ }).click();
+}
+
 /** Pays the first unfunded milestone: through the real Drop-in on the sandbox, typing the card into its frames. */
 async function fundFirstMilestone(client: Page, rail: string, card = "4111111111111111") {
-  if (rail !== "sandbox") {
-    await client.getByRole("button", { name: "PayPal account (test nonce)" }).first().click();
-  } else {
-    const m1 = client.locator("section").first();
-    await m1.locator(".braintree-dropin").waitFor({ timeout: 60_000 });
-    const cardOption = m1.getByText("Card", { exact: true });
-    if (await cardOption.isVisible().catch(() => false)) await cardOption.click();
-    const field = (n: string) => m1.frameLocator(`iframe[name^='braintree-hosted-field-${n}']`).locator("input:not(.autofill-field)");
-    await field("number").fill(card);
-    await field("expirationDate").fill("12/30");
-    for (const n of ["cvv", "postalCode"]) if (await m1.locator(`iframe[name^='braintree-hosted-field-${n}']`).count()) await field(n).fill(n === "cvv" ? "123" : "12345");
-    await m1.getByRole("button", { name: /^Hold \$/ }).click();
-  }
+  if (rail !== "sandbox") await client.getByRole("button", { name: "PayPal account (test nonce)" }).first().click();
+  else await holdWithCard(client, card);
   await expect(client.getByText("Your money is held.").first()).toBeVisible({ timeout: 90_000 });
+}
+
+/** A declined card: the reason stays on the page, not in a toast that fades. */
+async function declineFirst(client: Page, rail: string) {
+  if (rail !== "sandbox") await client.getByRole("button", { name: "Try a declined card" }).first().click();
+  else await holdWithCard(client, "4000111111111115");
+  const alert = client.locator("section").first().getByRole("alert").filter({ hasText: "No hold was placed." });
+  await expect(alert).toBeVisible({ timeout: 60_000 });
+  await client.waitForTimeout(6_000);
+  await expect(alert).toBeVisible();
 }
 
 async function noSidewaysScroll(page: Page) {
@@ -49,6 +61,8 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   const rail = await railOf(page);
   if (rail === "sandbox") await client.locator("section").first().locator(".braintree-dropin").waitFor({ timeout: 60_000 });
   await client.screenshot({ path: `${shots}/02-client-fund.png`, fullPage: true });
+  // A declined card first: the reason stays inline and the form takes another card.
+  await declineFirst(client, rail);
   // Braintree's ordinary test card: an authorization, so the money is held, not charged.
   await fundFirstMilestone(client, rail, "4111111111111111");
   await expect(client.getByText(/Visa ending 1111|PayPal buyer/).first()).toBeVisible();
@@ -66,7 +80,7 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
 
   // The client asks for changes with a drafted note.
   await client.reload();
-  await expect(client.getByText("Your decision")).toBeVisible();
+  await expect(client.getByRole("heading", { name: "Your decision" })).toBeVisible();
   await client.getByRole("button", { name: "Request changes" }).click();
   await client.getByRole("button", { name: "Draft from the report" }).click();
   await expect(client.locator("#note")).toHaveValue(/Saturday/);
@@ -132,7 +146,9 @@ test("each visitor sees only their own workspace", async ({ browser }) => {
     await p.getByRole("button", { name: "Try the live demo" }).click();
     await expect(p.getByText("Demo workspace.")).toBeVisible();
   }
-  await a.getByRole("button", { name: "Load sample project" }).click();
+  // The demo starts with the sample loaded, so the loader button is hidden.
+  await expect(a.getByRole("button", { name: "Load sample project" })).toHaveCount(0);
+  await a.getByRole("link", { name: /Larkspur Pottery Studio website/ }).first().click();
   await expect(a.getByRole("heading", { name: "Larkspur Pottery Studio website" })).toBeVisible();
   const projectUrl = a.url();
   await b.goto("/dashboard");
@@ -146,12 +162,14 @@ test("an operator drafts milestones from a pasted scope, edits them and creates 
   await page.getByRole("button", { name: "Try the live demo" }).click();
   await expect(page.getByText("Demo workspace.")).toBeVisible();
   await page.goto("/projects/new");
+  await page.getByRole("textbox", { name: "Project name" }).fill("Pottery site from the e2e test");
   await page.getByRole("button", { name: "Use the sample scope" }).click();
   await page.getByRole("button", { name: "Draft milestones" }).click();
   await expect(page.getByText("Milestone 2")).toBeVisible({ timeout: 120_000 });
+  // The planner keeps a name the freelancer typed.
+  await expect(page.getByRole("textbox", { name: "Project name" })).toHaveValue("Pottery site from the e2e test");
   await expect(page.getByText(/From the scope:/).first()).toBeVisible();
   await page.screenshot({ path: `${process.env.E2E_SHOTS_DIR ?? "test-results/screens"}/10-new-project.png`, fullPage: true });
-  await page.getByRole("textbox", { name: "Project name" }).fill("Pottery site from the e2e test");
   await page.getByRole("button", { name: "Save and create client link" }).click();
   await expect(page.getByRole("heading", { name: "Pottery site from the e2e test" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Client link" })).toBeVisible();

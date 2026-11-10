@@ -129,7 +129,7 @@ export function chunkEvidence(text: string, limit = TEXT_EVIDENCE_LIMIT): string
 /**
  * Braintree's sandbox rules a finalized dispute won or lost from a test value: an evidence item whose whole
  * content is one of these (verified live on 10 November 2026: won about 25 seconds after finalizing).
- * Sandbox and test rail only, and only when the operator picks an outcome.
+ * Sandbox and test rail only, and only when the freelancer picks an outcome.
  */
 export const SANDBOX_WIN_MARKER = "compelling_evidence";
 export const SANDBOX_LOSE_MARKER = "losing_evidence";
@@ -145,7 +145,7 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
   }
   const pack = (editedPack ?? d.evidencePack ?? "").trim();
   if (!pack) throw new ServiceError("The evidence pack is empty");
-  // Braintree's sandbox decides a dispute's outcome from a test value in the evidence. Sandbox and test rail only, and only when the operator picks one.
+  // Braintree's sandbox decides a dispute's outcome from a test value in the evidence. Sandbox and test rail only, and only when the freelancer picks one.
   const outcome: SandboxOutcome = rail.mode === "production" ? "none" : (opts.sandboxOutcome ?? (opts.sandboxMarkCompelling ? "win" : "none"));
   const now = new Date();
   // Claim the dispute so two quick clicks cannot submit evidence twice.
@@ -154,7 +154,7 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
     .set({ approvedAt: now, evidencePack: pack, updatedAt: now })
     .where(and(eq(disputes.id, d.id), isNull(disputes.approvedAt), isNull(disputes.submittedAt)));
   if (claim.rowsAffected !== 1) throw new ServiceError("Evidence for this dispute is already being submitted", 409);
-  await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "operator", type: "dispute.evidence_approved", message: "Operator approved the evidence pack", data: { disputeId: d.id } });
+  await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "operator", type: "dispute.evidence_approved", message: "Freelancer approved the evidence pack", data: { disputeId: d.id } });
 
   const ids: string[] = [];
   let final: DisputeInfo;
@@ -166,7 +166,7 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
     final = await rail.finalizeDispute(d.id);
   } catch (err) {
     const e = err instanceof RailError ? err : new RailError(String(err));
-    // Release the claim so the operator can try again, keeping any evidence ids Braintree already took.
+    // Release the claim so the freelancer can try again, keeping any evidence ids Braintree already took.
     await db.update(disputes).set({ evidenceIds: ids, approvedAt: null, updatedAt: new Date() }).where(eq(disputes.id, d.id));
     await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "dispute.submit_failed", message: `Submitting evidence failed: ${e.message}`, data: { disputeId: d.id, code: e.code, evidenceIds: ids } });
     throw new ServiceError(e.message, 502);

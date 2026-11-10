@@ -22,7 +22,7 @@ function jsonRpcError(status: number, message: string, headers: Record<string, s
 export async function POST(req: Request) {
   const db = await getDb();
   const auth = await projectForToken(db, req.headers.get("authorization"));
-  if (!auth) return jsonRpcError(401, "A valid agent token is required. The operator creates one on the project page.", { "www-authenticate": 'Bearer realm="signoff"' });
+  if (!auth) return jsonRpcError(401, "A valid agent token is required. The freelancer creates one on the project page.", { "www-authenticate": 'Bearer realm="signoff"' });
   const text = await req.text();
   if (text.length > MAX_BODY) return jsonRpcError(413, "Request too large");
   let body: unknown;

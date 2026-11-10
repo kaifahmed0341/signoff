@@ -34,7 +34,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
   if (c.status === "failed") {
     return (
       <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
-        The last check did not finish: {c.error} The hold is untouched. The operator can run the check again.
+        The last check did not finish: {c.error} The hold is untouched. The freelancer can run the check again.
       </div>
     );
   }
@@ -58,6 +58,13 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
           <span><span className="font-semibold text-person">{counts.needs_person}</span> for a person</span>
         </div>
       </div>
+
+      {m.files.some((f) => f.mime === "application/pdf") && !(m.delivery?.links ?? []).some((l) => /^https?:\/\//.test(l) && !/github\.com/.test(l)) && (
+        <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex gap-2">
+          <FileText className="size-4 shrink-0" />
+          <span>This delivery is a PDF. The checker read the text of the file. No live page was checked, so anything the PDF shows as a website was not tested on a real site.</span>
+        </div>
+      )}
 
       {c.fallbackReason && (
         <div className="mx-4 mt-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2 text-xs text-amber-900 dark:text-amber-200 flex gap-2">

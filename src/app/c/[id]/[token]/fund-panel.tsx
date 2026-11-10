@@ -13,6 +13,7 @@ type DropinInstance = {
   teardown: () => Promise<void>;
   on: (event: string, cb: () => void) => void;
   isPaymentMethodRequestable: () => boolean;
+  clearSelectedPaymentMethod: () => void;
 };
 
 type Props = { projectId: string; token: string; milestoneId: string; amount: string; amountLabel: string; currency: string; rail: string; paypalEnabled?: boolean };
@@ -21,17 +22,44 @@ export function FundPanel(props: Props) {
   return props.rail === "fake" ? <TestCheckout {...props} /> : <DropinCheckout {...props} />;
 }
 
-function useFund(props: Props) {
+/** Opens the payment form for one milestone at a time, so a phone does not show a card form per milestone. */
+export function FundOnDemand({ open, label, children }: { open: boolean; label: string; children: React.ReactNode }) {
+  const [shown, setShown] = useState(open);
+  if (shown) return <>{children}</>;
+  return (
+    <Button size="lg" variant="outline" className="w-full" onClick={() => setShown(true)}>
+      <Lock /> {label}
+    </Button>
+  );
+}
+
+function useFund(props: Props, onDecline?: () => void) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [failure, setFailure] = useState<string | null>(null);
   const fund = (nonce: string, deviceData?: string) =>
     start(async () => {
+      setFailure(null);
       const r = await fundAction({ projectId: props.projectId, token: props.token, milestoneId: props.milestoneId, nonce, deviceData });
-      if (!r.ok) return void toast.error(r.error);
+      if (!r.ok) {
+        // Kept on the page until the next attempt, and the failed card is cleared from the form.
+        setFailure(r.error);
+        onDecline?.();
+        return;
+      }
       toast.success(`${props.amountLabel} is on hold. Nothing has been charged.`);
       router.refresh();
     });
-  return { fund, pending };
+  return { fund, pending, failure };
+}
+
+function Failure({ text }: { text: string | null }) {
+  if (!text) return null;
+  return (
+    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-900 dark:text-red-200">
+      <strong>No hold was placed.</strong> {text}
+    </div>
+  );
 }
 
 function DropinCheckout(props: Props) {
@@ -39,7 +67,11 @@ function DropinCheckout(props: Props) {
   const [instance, setInstance] = useState<DropinInstance | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { fund, pending } = useFund(props);
+  const { fund, pending, failure } = useFund(props, () => {
+    try {
+      instance?.clearSelectedPaymentMethod();
+    } catch {}
+  });
 
   useEffect(() => {
     let inst: DropinInstance | null = null;
@@ -89,6 +121,7 @@ function DropinCheckout(props: Props) {
         </div>
       )}
       <div ref={box} />
+      <Failure text={failure} />
       {error && <p className="text-sm text-destructive">Payment form failed to load: {error}</p>}
       <Button
         size="lg"
@@ -141,7 +174,7 @@ function CardToCopy({ label, number }: { label: string; number: string }) {
 
 /** Shown only when no Braintree keys are configured. Uses the same fake nonces as the Braintree sandbox. */
 function TestCheckout(props: Props) {
-  const { fund, pending } = useFund(props);
+  const { fund, pending, failure } = useFund(props);
   return (
     <div className="space-y-3">
       <div className="rounded-lg border border-dashed bg-muted/50 p-3 text-xs text-muted-foreground">
@@ -155,9 +188,10 @@ function TestCheckout(props: Props) {
           <CreditCard /> Card (test nonce)
         </Button>
       </div>
+      <Failure text={failure} />
       <div className="flex flex-wrap gap-3 text-xs">
         <button className="text-muted-foreground hover:text-foreground underline" disabled={pending} onClick={() => fund("fake-processor-declined-visa-nonce")}>Try a declined card</button>
-        <button className="text-muted-foreground hover:text-foreground underline" disabled={pending} onClick={() => fund("fake-dispute-card-nonce")}>Use the dispute test card</button>
+        <button className="text-muted-foreground hover:text-foreground underline" disabled={pending} onClick={() => fund("fake-dispute-card-nonce")}>Try a card that charges at once</button>
       </div>
     </div>
   );

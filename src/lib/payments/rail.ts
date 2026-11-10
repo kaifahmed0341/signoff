@@ -101,7 +101,7 @@ export function amountToCents(amount: string | number): number {
   return Math.round(Number(amount) * 100);
 }
 
-/** Statuses at which the money has left the hold and is on its way to the operator. */
+/** Statuses at which the money has left the hold and is on its way to the freelancer. */
 export const RELEASED_STATUSES = new Set([
   "submitted_for_settlement",
   "settling",
