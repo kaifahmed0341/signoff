@@ -6,14 +6,15 @@ import { AutoRefresh } from "@/components/app/auto-refresh";
 import { EvidenceReport } from "@/components/app/evidence-report";
 import { HoldInfo } from "@/components/app/hold-info";
 import { StateBadge } from "@/components/app/state-badge";
-import { Timeline, type TimelineRow } from "@/components/app/timeline";
+import { MoneyAndAudit } from "@/components/app/money-view";
 import { getDb } from "@/lib/db";
 import { env, railMode } from "@/lib/env";
 import { sampleLinks } from "@/lib/sample";
 import { ServiceError, getOwnedProject, projectMilestones, shareTokenFor } from "@/lib/services/milestones";
 import { requireWorkspace } from "@/lib/web/auth";
 import { recoverStuckChecks } from "@/lib/ai/checker";
-import { day, money, refsOf, when } from "@/lib/web/format";
+import { day, money, when } from "@/lib/web/format";
+import { moneyRows, moneyTotals, timelineRows } from "@/lib/web/audit";
 import { loadProjectView } from "@/lib/web/views";
 import { AgentAccess } from "./agent-access";
 import { listAgentTokens } from "@/lib/services/mcp-tokens";
@@ -42,15 +43,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const shareUrl = `${env().APP_URL}/c/${project.id}/${shareTokenFor(project)}`;
   const rail = railMode();
   const anyChecking = milestones.some((m) => m.state === "checking");
-  const rows: TimelineRow[] = events.map((e) => ({
-    iso: e.createdAt.toISOString(),
-    at: when(e.createdAt).replace(" UTC", ""),
-    actor: e.actor === "operator" ? "freelancer" : e.actor,
-    milestone: milestones.find((m) => m.id === e.milestoneId)?.title ?? "",
-    type: e.type,
-    message: e.message,
-    refs: refsOf(e.data),
-  }));
+  const timeline = timelineRows(events, milestones);
+  const moneyByMilestone = moneyRows(milestones, milestones.flatMap((m) => m.disputes));
+
 
   return (
     <OperatorShell>
@@ -148,8 +143,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         />
       </div>
 
-      <h2 className="mt-10 mb-3 font-medium">Audit timeline</h2>
-      <Timeline rows={rows} />
+      <h2 className="mt-10 mb-3 font-medium">Money by milestone</h2>
+      <MoneyAndAudit money={moneyByMilestone} totals={moneyTotals(moneyByMilestone)} timeline={timeline} currency={project.currency} />
     </OperatorShell>
   );
 }

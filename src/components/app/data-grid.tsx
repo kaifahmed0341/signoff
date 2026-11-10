@@ -1,6 +1,6 @@
 "use client";
 
-import { AgGridReact } from "ag-grid-react";
+import { AgGridReact, type AgGridReactProps } from "ag-grid-react";
 import { AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type GridApi } from "ag-grid-community";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -23,7 +23,22 @@ const theme = themeQuartz.withParams({
  * so it never widens the page.
  */
 /** Columns listed in `narrowHidden` are hidden when the grid is narrower than 640 pixels. */
-export function DataGrid<T>({ rows, columns, quickFilter, empty = "Nothing here yet", narrowHidden = [] }: { rows: T[]; columns: ColDef<T>[]; quickFilter?: string; empty?: string; narrowHidden?: string[] }) {
+/** `gridProps` passes further AG Grid options through, such as a pinned totals row or a row-click handler. */
+export function DataGrid<T>({
+  rows,
+  columns,
+  quickFilter,
+  empty = "Nothing here yet",
+  narrowHidden = [],
+  gridProps = {},
+}: {
+  rows: T[];
+  columns: ColDef<T>[];
+  quickFilter?: string;
+  empty?: string;
+  narrowHidden?: string[];
+  gridProps?: Partial<AgGridReactProps<T>>;
+}) {
   return (
     <div className="w-full min-w-0 max-w-full overflow-hidden">
       <AgGridReact<T>
@@ -46,6 +61,7 @@ export function DataGrid<T>({ rows, columns, quickFilter, empty = "Nothing here 
         animateRows
         suppressCellFocus
         enableCellTextSelection
+        {...gridProps}
       />
     </div>
   );
