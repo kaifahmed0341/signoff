@@ -82,31 +82,29 @@ describe.runIf(run)("Braintree sandbox", () => {
     await expect(r.parseWebhook(tamper(s.signature), s.payload)).rejects.toThrow();
   });
 
-  it("opens a dispute with the test card and takes evidence", async () => {
-    const r = rail();
-    const gw = r.gatewayForTests;
-    const sale = (await gw.transaction.sale({
-      amount: "15.00",
-      creditCard: { number: "4023898493988028", expirationDate: "12/2030" },
-      options: { submitForSettlement: false },
-    } as never)) as unknown as { success: boolean; message?: string; transaction: { id: string } };
-    expect(sale.success, sale.message).toBe(true);
-    await r.release(sale.transaction.id);
-    await r.testSettle(sale.transaction.id);
-    let disputes = await r.findDisputes(sale.transaction.id);
-    for (let i = 0; i < 10 && disputes.length === 0; i++) {
-      await new Promise((res) => setTimeout(res, 3000));
-      disputes = await r.findDisputes(sale.transaction.id);
-    }
-    console.log("disputes", JSON.stringify(disputes));
-    expect(disputes.length).toBeGreaterThan(0);
-    const d = disputes[0];
-    const evidenceId = await r.addDisputeTextEvidence(d.id, "Signed acceptance record (live test).\ncompelling_evidence", 0);
-    expect(evidenceId).toBeTruthy();
-    const final = await r.finalizeDispute(d.id);
-    console.log("finalized", final.status, JSON.stringify(await r.getDispute(d.id)));
-    expect(final.id).toBe(d.id);
-    expect(final.transactionId).toBe(sale.transaction.id);
-    expect(["open", "disputed", "under_review", "won"]).toContain(final.status);
-  }, 120_000);
+  for (const [marker, expected] of [["compelling_evidence", "won"], ["losing_evidence", "lost"]] as const) {
+    it(`a dispute with the test value ${marker} as its own evidence item is ruled ${expected}`, async () => {
+      const r = rail();
+      const hold = await r.chargeDisputeCard({ amountCents: 1500, orderId: `live-${expected}-${Date.now()}`, description: "live dispute test" });
+      let disputes = await r.findDisputes(hold.transactionId);
+      for (let i = 0; i < 15 && disputes.length === 0; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        disputes = await r.findDisputes(hold.transactionId);
+      }
+      expect(disputes.length).toBeGreaterThan(0);
+      const d = disputes[0];
+      expect(await r.addDisputeTextEvidence(d.id, "Signed acceptance record (live test).", 0)).toBeTruthy();
+      expect(await r.addDisputeTextEvidence(d.id, marker, 1)).toBeTruthy();
+      const final = await r.finalizeDispute(d.id);
+      expect(final.id).toBe(d.id);
+      expect(final.transactionId).toBe(hold.transactionId);
+      let status = final.status;
+      for (let i = 0; i < 30 && status !== expected; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        status = (await r.getDispute(d.id)).status;
+      }
+      console.log("ruled", marker, status);
+      expect(status).toBe(expected);
+    }, 180_000);
+  }
 });
