@@ -246,3 +246,62 @@ test("a hold that ends before the due date is flagged, and the client renews it"
   await page.reload();
   await expect(page.getByText(/Client renewed the hold/).first()).toBeVisible();
 });
+
+test("a chargeback after sign-off works on a project the freelancer wrote from scratch", async ({ page, context, baseURL }) => {
+  test.setTimeout(420_000);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Try the live demo" }).click();
+  await expect(page.getByText("Demo workspace.")).toBeVisible();
+  await page.goto("/projects/new");
+  await page.getByRole("textbox", { name: "Project name" }).fill("Signoff front page review");
+  await page.locator("#p-client").fill("Harbor Lane Books");
+  await page.locator("#scope").fill(
+    [
+      "Harbor Lane Books wants a short review of a public product page.",
+      "",
+      "Milestone 1: Product page review ($120, due in 4 days)",
+      "- The page explains that payment is held until the client signs off",
+      "- The page links to the source code on GitHub",
+    ].join("\n"),
+  );
+  await page.getByRole("button", { name: "Draft milestones" }).click();
+  await expect(page.getByText("Milestone 1").first()).toBeVisible({ timeout: 120_000 });
+  await expect(page.getByRole("textbox", { name: "Project name" })).toHaveValue("Signoff front page review");
+  await page.getByRole("button", { name: "Save and create client link" }).click();
+  await expect(page.getByRole("heading", { name: "Signoff front page review" })).toBeVisible();
+  const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
+  const rail = await railOf(page);
+
+  const client = await context.newPage();
+  await client.goto(shareUrl);
+  await client.getByRole("button", { name: rail === "sandbox" ? "Quick hold with the test card" : "Card (test nonce)" }).first().click();
+  await expect(client.getByText("Your money is held.").first()).toBeVisible({ timeout: 60_000 });
+
+  await page.reload();
+  await page.locator("textarea[name=links]").first().fill(`${baseURL}/`);
+  await page.getByRole("button", { name: "Submit delivery for checking" }).click();
+  await expect(page.getByText("Evidence report for delivery v1")).toBeVisible({ timeout: 180_000 });
+
+  await client.reload();
+  // Nothing was met, so the panel opens on changes; the client accepts anyway.
+  await client.getByRole("button", { name: "Accept and release" }).click();
+  await client.locator("#signer").fill("Avery Buyer");
+  await client.getByRole("button", { name: "Sign off and release payment" }).click();
+  await expect(client.getByRole("link", { name: /View receipt SO-/ })).toBeVisible({ timeout: 60_000 });
+
+  await page.reload();
+  await page.getByRole("button", { name: "Sandbox: simulate the client's bank disputing this payment" }).click();
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 120_000 });
+  await expect(page.getByRole("textbox", { name: "Evidence pack" })).toHaveValue(/Avery Buyer/);
+  await page.getByRole("button", { name: "Approve and submit evidence to Braintree" }).click();
+  await expect(page.getByText("Evidence submitted. View what was sent")).toBeVisible({ timeout: 60_000 });
+  await expect(async () => {
+    await page.getByRole("button", { name: "Reconcile with Braintree" }).click();
+    await expect(page.getByText("Outcome: won")).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 120_000 });
+  await client.goto(shareUrl);
+  await expect(client.getByText("It was decided for the freelancer, so the payment stands.")).toBeVisible();
+});
