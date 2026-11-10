@@ -269,7 +269,7 @@ function mockJudge(judge: (criterion: string) => object, explore?: (step: number
 describe("webhooks and dispute defence", () => {
   async function releasedWithDisputeCard() {
     const m = await firstMilestone();
-    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.disputeCard });
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
     const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
     await runCheck(db, m.id, d);
     return acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
@@ -298,6 +298,7 @@ describe("webhooks and dispute defence", () => {
   it("finds a dispute by reconcile after settlement, and submits evidence after approval", async () => {
     const m = await releasedWithDisputeCard();
     await rail.testSettle(m.transactionId!);
+    await rail.openDisputeFor(m.transactionId!);
     await syncDisputes(db, rail, m.id);
     const [row] = await milestoneDisputes(db, m.id);
     expect(row.status).toBe("open");
@@ -390,5 +391,28 @@ describe("the report summary", () => {
     await runCheck(db, m.id, d);
     const check = await latestCheck(db, m.id);
     expect(check!.summary).toBe("0 of 4 criteria met, 4 for a person to judge. Checked by mock/test.");
+  });
+});
+
+describe("a hold means authorized", () => {
+  it("a card Braintree charges at once is voided and not recorded as a hold", async () => {
+    const p = await createSampleProject(db, OWNER);
+    const [m] = await projectMilestones(db, p.id);
+    await expect(fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.disputeCard })).rejects.toThrow(/charged at once instead of held/);
+    const after = await getMilestone(db, m.id);
+    expect(after.state).toBe("awaiting_funding");
+    expect(after.transactionId).toBeNull();
+    const events = await db.select().from(auditEvents).where(eq(auditEvents.milestoneId, m.id));
+    expect(events.some((e) => e.type === "hold.placed")).toBe(false);
+    const ev = events.find((e) => e.type === "hold.not_held");
+    expect(ev?.message).toMatch(/voided it, so nothing is charged/);
+    expect((await rail.getHold(String(ev!.data!.transactionId))).status).toBe("voided");
+  });
+  it("an authorized card is recorded as a hold", async () => {
+    const p = await createSampleProject(db, OWNER);
+    const [m] = await projectMilestones(db, p.id);
+    const f = await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    expect(f.state).toBe("funded");
+    expect(f.transactionStatus).toBe("authorized");
   });
 });

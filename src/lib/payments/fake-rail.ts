@@ -127,6 +127,8 @@ export class FakeRail implements PaymentRail {
       createdAt: created,
       opensDispute: input.nonce === FAKE_NONCES.disputeCard,
     };
+    // Braintree charges its dispute test card at once, whatever the request asked; the test rail does the same.
+    if (row.opensDispute) row.status = "submitted_for_settlement";
     await db.insert(fakeTransactions).values(row);
     return toHold(row);
   }

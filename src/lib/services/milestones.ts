@@ -218,6 +218,24 @@ export async function fundMilestone(
     await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "hold.failed", message: `Hold was not placed: ${e.message}`, data: { code: e.code, transactionId: e.transactionId, rail: rail.mode } });
     throw new ServiceError(e.message, 402);
   }
+  // Trust Braintree's answer, not the request: only an authorized transaction is a hold.
+  if (hold.status !== "authorized") {
+    let voided = false;
+    try {
+      voided = (await rail.void(hold.transactionId)).status === "voided";
+    } catch {
+      voided = false;
+    }
+    const what = `Braintree returned ${hold.status.replace(/_/g, " ")} for ${hold.payerLabel ?? hold.instrument}, so the payment was charged at once instead of held`;
+    if (voided) {
+      await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "hold.not_held", message: `${what}. Signoff voided it, so nothing is charged.`, data: { transactionId: hold.transactionId, status: hold.status, rail: rail.mode } });
+      throw new ServiceError("That card was charged at once instead of held, so the charge was voided and nothing is owed. Use a card that can be held, such as 4111 1111 1111 1111.", 402);
+    }
+    const attention = `${what}, and the void failed. Transaction ${hold.transactionId} may be charged. Check the Braintree control panel.`;
+    await db.update(milestones).set({ attention }).where(eq(milestones.id, m.id));
+    await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "hold.captured_not_held", message: attention, data: { transactionId: hold.transactionId, status: hold.status, rail: rail.mode } });
+    throw new ServiceError("That card was charged at once instead of held, and the charge could not be voided automatically. The freelancer has been told.", 402);
+  }
   const next = await applyEvent(db, { ...m, fundingAttempt: attempt }, "AUTHORIZE", {
     transactionId: hold.transactionId,
     transactionStatus: hold.status,
