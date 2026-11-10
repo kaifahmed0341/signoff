@@ -2,6 +2,30 @@ import { expect, test, type Page } from "@playwright/test";
 
 const shots = process.env.E2E_SHOTS_DIR ?? "test-results/screens";
 
+/** "sandbox" when the server runs on the Braintree sandbox, "fake" on the test rail. */
+async function railOf(page: Page): Promise<string> {
+  const r = await page.request.get("/api/health");
+  return ((await r.json()) as { rail: string }).rail;
+}
+
+/** Pays the first unfunded milestone: through the real Drop-in on the sandbox, typing the card into its frames. */
+async function fundFirstMilestone(client: Page, rail: string, card = "4111111111111111") {
+  if (rail !== "sandbox") {
+    await client.getByRole("button", { name: "PayPal account (test nonce)" }).first().click();
+  } else {
+    const m1 = client.locator("section").first();
+    await m1.locator(".braintree-dropin").waitFor({ timeout: 60_000 });
+    const cardOption = m1.getByText("Card", { exact: true });
+    if (await cardOption.isVisible().catch(() => false)) await cardOption.click();
+    const field = (n: string) => m1.frameLocator(`iframe[name^='braintree-hosted-field-${n}']`).locator("input:not(.autofill-field)");
+    await field("number").fill(card);
+    await field("expirationDate").fill("12/30");
+    for (const n of ["cvv", "postalCode"]) if (await m1.locator(`iframe[name^='braintree-hosted-field-${n}']`).count()) await field(n).fill(n === "cvv" ? "123" : "12345");
+    await m1.getByRole("button", { name: /^Hold \$/ }).click();
+  }
+  await expect(client.getByText("Your money is held.").first()).toBeVisible({ timeout: 90_000 });
+}
+
 async function noSidewaysScroll(page: Page) {
   const { scroll, width } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: window.innerWidth }));
   expect(scroll, `page is ${scroll}px wide in a ${width}px window`).toBeLessThanOrEqual(width + 1);
@@ -22,9 +46,11 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   const client = await context.newPage();
   await client.goto(shareUrl);
   await expect(client.getByText("Fund this milestone with a hold").first()).toBeVisible();
+  const rail = await railOf(page);
+  if (rail === "sandbox") await client.locator("section").first().locator(".braintree-dropin").waitFor({ timeout: 60_000 });
   await client.screenshot({ path: `${shots}/02-client-fund.png`, fullPage: true });
-  await client.getByRole("button", { name: "PayPal account (test nonce)" }).first().click();
-  await expect(client.getByText("Your money is held.").first()).toBeVisible();
+  // The dispute test card, so the chargeback step below has a real sandbox dispute.
+  await fundFirstMilestone(client, rail, "4023898493988028");
 
   // The operator submits the cheat version. The report shows the tampering and the removed quotes.
   await page.reload();
@@ -64,11 +90,21 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
 
   // A chargeback opens; the operator approves evidence drafted from the signed record.
   await page.reload();
-  await page.getByRole("button", { name: "Open a chargeback with a signed webhook" }).click();
+  if (rail === "sandbox") {
+    // Settle with Braintree's sandbox helper; the dispute card then opens a real chargeback, found by reconcile or webhook.
+    await page.getByRole("button", { name: "Settle now and check for disputes" }).click();
+    await expect(async () => {
+      await page.reload();
+      await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible({ timeout: 5_000 });
+    }).toPass({ timeout: 120_000 });
+  } else {
+    await page.getByRole("button", { name: "Open a chargeback with a signed webhook" }).click();
+  }
   await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible();
   await expect(page.getByText(/Chargeback opened for \$450\.00/)).toBeVisible();
   await page.getByRole("button", { name: "Approve and submit evidence to Braintree" }).click();
-  await expect(page.getByText("Outcome: won")).toBeVisible();
+  // The test rail decides at once; the sandbox moves a finalized dispute to "disputed" and decides later.
+  await expect(page.getByText(rail === "sandbox" ? "Evidence submitted. View what was sent" : "Outcome: won")).toBeVisible({ timeout: 60_000 });
   await page.screenshot({ path: `${shots}/06-dispute.png`, fullPage: true });
 
   // Phone width: no page is wider than the screen.
@@ -123,8 +159,9 @@ test("a coding agent works the freelancer's side over MCP, until its token is re
   const shareUrl = await page.getByRole("textbox", { name: "Client link" }).inputValue();
   const client = await context.newPage();
   await client.goto(shareUrl);
-  await client.getByRole("button", { name: "Card (test nonce)" }).first().click();
-  await expect(client.getByText("Your money is held.").first()).toBeVisible();
+  if ((await railOf(page)) === "sandbox") await client.getByRole("button", { name: "Quick hold with the test card" }).first().click();
+  else await client.getByRole("button", { name: "Card (test nonce)" }).first().click();
+  await expect(client.getByText("Your money is held.").first()).toBeVisible({ timeout: 90_000 });
 
   await page.reload();
   await page.getByText("Agent access").click();

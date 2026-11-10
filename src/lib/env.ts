@@ -19,6 +19,8 @@ const schema = z.object({
   BRAINTREE_PUBLIC_KEY: z.string().optional(),
   BRAINTREE_PRIVATE_KEY: z.string().optional(),
   BRAINTREE_MERCHANT_ACCOUNT_ID: z.string().optional(),
+  /** Show PayPal in the Drop-in. Braintree's sandbox needs a linked PayPal sandbox account for it; off by default. */
+  BRAINTREE_PAYPAL_ENABLED: z.enum(["true", "false", "1", "0"]).default("false").transform((v) => v === "true" || v === "1"),
   CURRENCY: z.string().length(3).default("USD"),
 
   // AI
@@ -37,6 +39,12 @@ const schema = z.object({
     .default("false")
     .transform((v) => v === "true" || v === "1"),
   DEMO_VIDEO_URL: z.string().url().optional(),
+  /**
+   * Test-only. When set, a request carrying it in the x-signoff-e2e header may start a demo
+   * workspace without counting against the per-address workspace limit, so the production
+   * browser tests can run repeatedly. Every other cap still applies. Unset means no bypass.
+   */
+  E2E_BYPASS_TOKEN: z.string().min(32).optional(),
   REPO_URL: z.string().url().default("https://github.com/kaifahmed0341/signoff"),
 
   // Daily caps. Per-workspace caps apply to demo workspaces; global caps to the whole server.

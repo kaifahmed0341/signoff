@@ -76,6 +76,17 @@ export interface PaymentRail {
   testSettle(transactionId: string): Promise<Hold>;
 }
 
+/** Braintree's sandbox test cards, shown to judges next to the payment form. */
+export const SANDBOX_TEST_CARD = "4111 1111 1111 1111";
+export const SANDBOX_DISPUTE_CARD = "4023 8984 9398 8028";
+/** Braintree's documented fake nonce for a valid Visa: a real sandbox transaction made on the server. */
+export const SANDBOX_QUICK_NONCE = "fake-valid-visa-nonce";
+/**
+ * Not a Braintree nonce: asks the sandbox rail to authorize Braintree's dispute
+ * test card on the server, so a chargeback follows once it settles. Refused in production.
+ */
+export const SANDBOX_DISPUTE_CARD_NONCE = "signoff-sandbox-dispute-card";
+
 export function centsToAmount(cents: number): string {
   return (cents / 100).toFixed(2);
 }

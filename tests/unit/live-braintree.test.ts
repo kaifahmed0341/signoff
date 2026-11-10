@@ -104,6 +104,9 @@ describe.runIf(run)("Braintree sandbox", () => {
     const evidenceId = await r.addDisputeTextEvidence(d.id, "Signed acceptance record (live test).\ncompelling_evidence", 0);
     expect(evidenceId).toBeTruthy();
     const final = await r.finalizeDispute(d.id);
-    console.log("finalized", final.status);
+    console.log("finalized", final.status, JSON.stringify(await r.getDispute(d.id)));
+    expect(final.id).toBe(d.id);
+    expect(final.transactionId).toBe(sale.transaction.id);
+    expect(["open", "disputed", "under_review", "won"]).toContain(final.status);
   }, 120_000);
 });

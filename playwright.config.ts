@@ -13,7 +13,13 @@ export default defineConfig({
   expect: { timeout: remote ? 120_000 : 30_000 },
   fullyParallel: false,
   retries: 0,
-  use: { baseURL: remote ?? `http://localhost:${PORT}`, trace: "retain-on-failure", screenshot: "only-on-failure" },
+  use: {
+    baseURL: remote ?? `http://localhost:${PORT}`,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+    // Production runs send the test-only bypass for the per-address workspace limit, if one is set.
+    extraHTTPHeaders: process.env.E2E_BYPASS_TOKEN ? { "x-signoff-e2e": process.env.E2E_BYPASS_TOKEN } : undefined,
+  },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: remote
     ? undefined

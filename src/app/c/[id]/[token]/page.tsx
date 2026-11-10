@@ -7,7 +7,7 @@ import { EvidenceReport } from "@/components/app/evidence-report";
 import { HoldInfo } from "@/components/app/hold-info";
 import { StateBadge } from "@/components/app/state-badge";
 import { getDb } from "@/lib/db";
-import { railMode } from "@/lib/env";
+import { env, railMode } from "@/lib/env";
 import { projectFromShareLink } from "@/lib/services/milestones";
 import { centsToAmount } from "@/lib/payments/rail";
 import { day, money } from "@/lib/web/format";
@@ -83,12 +83,12 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                         <div className="text-sm">
                           <div className="font-medium">Fund this milestone with a hold</div>
                           <p className="text-muted-foreground mt-1">
-                            Your PayPal account or card is authorized for {money(m.amountCents, project.currency)}. The money is held, not charged. It is charged only if you accept the work.
+                            Your {rail === "sandbox" && !env().BRAINTREE_PAYPAL_ENABLED ? "card" : "PayPal account or card"} is authorized for {money(m.amountCents, project.currency)}. The money is held, not charged. It is charged only if you accept the work.
                             If you decline, the hold is voided. A hold lasts about a week on cards and longer on PayPal, and this page shows the exact expiry.
                           </p>
                         </div>
                       </div>
-                      <FundPanel projectId={project.id} token={token} milestoneId={m.id} amount={centsToAmount(m.amountCents)} amountLabel={money(m.amountCents, project.currency)} currency={project.currency} rail={rail} />
+                      <FundPanel projectId={project.id} token={token} milestoneId={m.id} amount={centsToAmount(m.amountCents)} amountLabel={money(m.amountCents, project.currency)} currency={project.currency} rail={rail} paypalEnabled={env().BRAINTREE_PAYPAL_ENABLED} />
                     </div>
                   )}
                   {m.state === "funded" && <p className="text-sm text-muted-foreground">Your money is held. You will see an evidence report here when the work is delivered.</p>}

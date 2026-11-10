@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { getRail } from "@/lib/payments";
@@ -43,6 +44,16 @@ function fail(err: unknown): { ok: false; error: string } {
 
 // ---------------------------------------------------------------- sessions
 
+/** True only for the production browser tests: a secret header that matches E2E_BYPASS_TOKEN. */
+async function isE2eBypass(): Promise<boolean> {
+  const expected = env().E2E_BYPASS_TOKEN;
+  const got = (await headers()).get("x-signoff-e2e");
+  if (!expected || !got) return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(got);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 /** The visitor's address as the host reports it (Vercel sets x-forwarded-for). Used only hashed or for counting. */
 async function clientAddress(): Promise<string> {
   const h = await headers();
@@ -72,7 +83,7 @@ export async function startDemo() {
     const db = await getDb();
     let w;
     try {
-      w = await createDemoWorkspace(db, Date.now(), hashAddress(await clientAddress()));
+      w = await createDemoWorkspace(db, Date.now(), (await isE2eBypass()) ? null : hashAddress(await clientAddress()));
     } catch (err) {
       if (err instanceof WorkspaceLimitError) redirect("/?limit=workspaces");
       throw err;

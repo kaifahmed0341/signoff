@@ -2,6 +2,8 @@ import braintree from "braintree";
 import {
   RELEASED_STATUSES,
   RailError,
+  SANDBOX_DISPUTE_CARD,
+  SANDBOX_DISPUTE_CARD_NONCE,
   amountToCents,
   centsToAmount,
   type DisputeInfo,
@@ -114,9 +116,13 @@ export class BraintreeRail implements PaymentRail {
     // already produced a live hold returns that hold instead of a second one.
     const existing = await this.findAuthorizedByOrderId(input.orderId);
     if (existing) return existing;
+    const disputeCard = input.nonce === SANDBOX_DISPUTE_CARD_NONCE;
+    if (disputeCard && this.mode === "production") throw new RailError("Test cards are only accepted on the sandbox", "test_card_in_production");
     const r = (await this.gw.transaction.sale({
       amount: centsToAmount(input.amountCents),
-      paymentMethodNonce: input.nonce,
+      ...(disputeCard
+        ? { creditCard: { number: SANDBOX_DISPUTE_CARD.replace(/\s/g, ""), expirationDate: "12/2030" } }
+        : { paymentMethodNonce: input.nonce }),
       orderId: input.orderId,
       deviceData: input.deviceData,
       merchantAccountId: this.merchantAccountId,
@@ -166,7 +172,9 @@ export class BraintreeRail implements PaymentRail {
   }
 
   async getDispute(disputeId: string): Promise<DisputeInfo> {
-    return toDispute((await this.gw.dispute.find(disputeId)) as unknown as Loose);
+    // dispute.find resolves to { success, dispute }, unlike transaction.find, which resolves to the transaction.
+    const r = (await this.gw.dispute.find(disputeId)) as unknown as Loose;
+    return toDispute(((r.dispute as Loose | undefined) ?? r) as Loose);
   }
 
   async addDisputeTextEvidence(disputeId: string, content: string, sequence: number): Promise<string> {

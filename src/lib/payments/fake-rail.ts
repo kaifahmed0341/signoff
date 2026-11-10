@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db";
 import { fakeDisputes, fakeTransactions, kv } from "../db/schema";
 import { parseWithGateway, sampleWithGateway } from "./braintree-rail";
-import { RELEASED_STATUSES, RailError, type DisputeInfo, type Hold, type PaymentRail, type WebhookEvent } from "./rail";
+import { RELEASED_STATUSES, RailError, SANDBOX_DISPUTE_CARD_NONCE, type DisputeInfo, type Hold, type PaymentRail, type WebhookEvent } from "./rail";
 
 /**
  * Built-in stand-in for Braintree, used by the tests and by any install with
@@ -106,6 +106,8 @@ export class FakeRail implements PaymentRail {
     const existing = await db.select().from(fakeTransactions).where(eq(fakeTransactions.orderId, input.orderId));
     const live = existing.find((t) => t.status === "authorized");
     if (live) return toHold(live);
+    // The sandbox rail's server-side dispute card behaves like the test rail's dispute nonce.
+    if (input.nonce === SANDBOX_DISPUTE_CARD_NONCE) input = { ...input, nonce: FAKE_NONCES.disputeCard };
     if (input.nonce === FAKE_NONCES.declined) throw new RailError("Authorization failed: Do Not Honor", "2000");
     if (input.nonce === FAKE_NONCES.fraud) throw new RailError("Authorization failed: Gateway Rejected: fraud", "fraud");
     if (input.amountCents >= 200000 && input.amountCents < 300100) throw new RailError("Authorization failed: Do Not Honor", "2000");
