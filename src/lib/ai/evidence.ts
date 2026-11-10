@@ -1,11 +1,12 @@
 /**
  * Evidence must be real. Every quote the AI cites is checked here, in code,
  * against what the delivery actually shows. A quote survives only if:
- * - it is at least MIN_QUOTE_CHARS long, so a lone word cannot prove a criterion;
+ * - it is at least MIN_QUOTE_CHARS long, so a lone word cannot prove a criterion,
+ *   or at least MIN_SHORT_QUOTE_CHARS when it shows every value the criterion names;
  * - it is not the requirement itself (the criterion or its scope sentence);
  * - it appears word for word in text a visitor can see on a delivered page,
  *   in a delivered file, or in the repository. Hidden page text never counts.
- * - it shares at least one key word with the criterion.
+ * - it, or the heading just above it, shares at least one key word with the criterion.
  * And a "met" needs its quotes, together, to contain the specific numbers and
  * names the criterion states (a time, a price, an address).
  * Removed quotes are kept with the reason, and the report shows them.
@@ -14,6 +15,12 @@
  */
 
 export const MIN_QUOTE_CHARS = 20;
+/**
+ * A shorter quote, down to this length, still counts when the criterion names
+ * specific values and the quote, two words or more, shows every one of them: "Two-hour hire: $35"
+ * proves "lists two-hour hire at $35". A lone word or number never does.
+ */
+export const MIN_SHORT_QUOTE_CHARS = 8;
 
 export function normalizeText(s: string): string {
   return s
@@ -69,12 +76,19 @@ export function copiesRequirement(quote: string, req: Requirement): boolean {
 }
 
 /** Returns the visible source holding the quote, preferring the one the model named. */
-export function findQuote(quote: string, corpus: CorpusEntry[], preferredSource?: string): CorpusEntry | null {
+export function findQuote(quote: string, corpus: CorpusEntry[], preferredSource?: string, minChars = MIN_QUOTE_CHARS): CorpusEntry | null {
   const q = normalizeText(quote);
-  if (q.length < MIN_QUOTE_CHARS) return null;
+  if (q.length < minChars) return null;
   const ordered = preferredSource ? [...corpus.filter((c) => c.source === preferredSource), ...corpus.filter((c) => c.source !== preferredSource)] : corpus;
   for (const c of ordered) if (normalizeText(c.text).includes(q)) return c;
   return null;
+}
+
+/** Up to 60 characters of text just before the quote in its source: usually the heading above a list. */
+export function headingBefore(text: string, quote: string): string {
+  const t = normalizeText(text);
+  const at = t.indexOf(normalizeText(quote));
+  return at > 0 ? t.slice(Math.max(0, at - 60), at) : "";
 }
 
 function inHidden(quote: string, corpus: CorpusEntry[]): boolean {
@@ -89,7 +103,8 @@ export function verifyEvidence(items: RawEvidence[], corpus: CorpusEntry[], req?
   for (const it of items) {
     const q = normalizeText(it.quote ?? "");
     const drop = (reason: string) => dropped.push({ source: it.source, quote: q.slice(0, 300), reason });
-    if (q.length < MIN_QUOTE_CHARS) {
+    const shortButExact = !!req && q.length >= MIN_SHORT_QUOTE_CHARS && q.split(" ").length >= 2 && specifics(req.text).length > 0 && missingSpecifics(req.text, [q]).length === 0;
+    if (q.length < MIN_QUOTE_CHARS && !shortButExact) {
       drop(`too short to prove anything (under ${MIN_QUOTE_CHARS} characters)`);
       continue;
     }
@@ -97,12 +112,13 @@ export function verifyEvidence(items: RawEvidence[], corpus: CorpusEntry[], req?
       drop("copied from the requirement, not from the delivery");
       continue;
     }
-    const hit = findQuote(q, corpus, it.source);
+    const hit = findQuote(q, corpus, it.source, shortButExact ? MIN_SHORT_QUOTE_CHARS : MIN_QUOTE_CHARS);
     if (!hit) {
       drop(inHidden(q, corpus) ? "hidden from visitors on the page" : "not found in anything the checker read");
       continue;
     }
-    if (reqStems && reqStems.size > 0 && ![...stems(q)].some((w) => reqStems.has(w))) {
+    // A list often sits under the heading that says what it is ("Three focus channels", then the channels), so the words just before the quote count too.
+    if (reqStems && reqStems.size > 0 && ![...stems(`${headingBefore(hit.text, q)} ${q}`)].some((w) => reqStems.has(w))) {
       drop("does not mention anything the criterion asks for");
       continue;
     }

@@ -11,7 +11,7 @@ import { MockLanguageModelV4 } from "ai/test";
 import { verdicts } from "@/lib/db/schema";
 import { runCheck, scriptedJudge } from "@/lib/ai/checker";
 import { setModelForTests } from "@/lib/ai/model";
-import { PERSON_PREFIX, aboutPage, bearsOn, finalizeVerdict, isPersonCriterion } from "@/lib/ai/evidence";
+import { PERSON_PREFIX, aboutPage, bearsOn, finalizeVerdict, isPersonCriterion, verifyEvidence } from "@/lib/ai/evidence";
 import { finalizePlan, scriptedPlan, subjectiveLines, type Plan } from "@/lib/ai/planner";
 import { FAKE_NONCES, type FakeRail } from "@/lib/payments/fake-rail";
 import { createSampleProject, sampleLinks } from "@/lib/sample";
@@ -198,5 +198,26 @@ describe("J3 a not-met verdict never shows an unrelated quote as evidence", () =
     const v = (await verdictsOf(m.id))[2];
     expect(v.verdict).toBe("not_met");
     expect(v.evidence).toHaveLength(0);
+  });
+});
+
+describe("J4 eval misses fixed in the evidence rule (10 November 2026)", () => {
+  const page = [{ source: "p", text: "Hire\nTwo-hour hire: $35\nHalf-day hire: $55\nSaturday", kind: "page" as const }];
+  it("J4: a short list item that shows every value the criterion names is kept", () => {
+    const req = { text: "The page lists two-hour hire at $35.", sourceQuote: "The page lists two-hour hire at $35." };
+    expect(verifyEvidence([{ source: "p", quote: "Two-hour hire: $35" }], page, req).kept).toHaveLength(1);
+  });
+  it("J4: a short quote missing a value, a lone word, and a criterion with no values still need 20 characters", () => {
+    const priced = { text: "The page lists half-day hire at $60.", sourceQuote: "x" };
+    expect(verifyEvidence([{ source: "p", quote: "Half-day hire: $55" }], page, priced).kept).toHaveLength(0);
+    const noValues = { text: "The page lists the hire options.", sourceQuote: "x" };
+    expect(verifyEvidence([{ source: "p", quote: "Two-hour hire: $35" }], page, noValues).dropped[0].reason).toMatch(/too short/);
+    const day = { text: "The page names Saturday.", sourceQuote: "x" };
+    expect(verifyEvidence([{ source: "p", quote: "Saturday" }], page, day).kept).toHaveLength(0);
+  });
+  it("J4: a list under its heading keeps the key-word link to the criterion", () => {
+    const doc = [{ source: "file:s.pdf", text: "Best customers\nSmall businesses.\nThree focus channels\n1. Social media 2. Google 3. Networking", kind: "deliverable_file" as const }];
+    const req = { text: "The strategy document names three focus channels.", sourceQuote: "x" };
+    expect(verifyEvidence([{ source: "file:s.pdf", quote: "1. Social media 2. Google 3. Networking" }], doc, req).kept).toHaveLength(1);
   });
 });
