@@ -64,10 +64,16 @@ export function retryAfterSeconds(err: unknown): number | null {
 export function isRetryable(err: unknown): boolean {
   const s = statusOf(err);
   const msg = err instanceof Error ? err.message : String(err);
-  return s === 429 || s === 503 || s === 500 || /RESOURCE_EXHAUSTED|quota|overloaded|unavailable/i.test(msg);
+  return s === 429 || s === 503 || s === 500 || /RESOURCE_EXHAUSTED|quota|overloaded|unavailable|high demand/i.test(msg);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** The pause before one retry when the provider is overloaded and gives no Retry-After. */
+export let OVERLOAD_RETRY_SECONDS = 2;
+export function setOverloadRetryForTests(seconds: number) {
+  OVERLOAD_RETRY_SECONDS = seconds;
+}
 
 /**
  * Runs `call` with the main model; on a rate limit or outage waits once if the
@@ -88,7 +94,8 @@ export async function withModelFallback<T>(
       } catch (err) {
         last = err;
         if (!isRetryable(err)) throw err;
-        const wait = retryAfterSeconds(err);
+        // An overload with no Retry-After (Gemini's 503 "high demand") gets one short pause too.
+        const wait = retryAfterSeconds(err) ?? (statusOf(err) === 503 || /overloaded|high demand|unavailable/i.test(err instanceof Error ? err.message : String(err)) ? OVERLOAD_RETRY_SECONDS : null);
         if (attempt === 0 && wait !== null && wait <= (opts.maxWaitSeconds ?? 20)) {
           await sleep(Math.ceil(wait * 1000) + 250);
           continue;

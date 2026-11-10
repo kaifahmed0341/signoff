@@ -22,10 +22,13 @@ export type StoredSampleResult = {
 
 export const STORED_SAMPLE_RESULTS = stored as StoredSampleResult[];
 
-/** True when an error from the model means the quota or rate limit is used up. */
+/**
+ * True when an error from the model means the live model cannot answer now: quota or rate limit used up,
+ * or the provider overloaded or timing out (Gemini's 503 "high demand"). Used only to unlock a stored sample result.
+ */
 export function isQuotaError(err: unknown): boolean {
-  const msg = err instanceof Error ? `${err.message} ${(err as { statusCode?: number }).statusCode ?? ""}` : String(err);
-  return /quota|rate limit|rate-limit|429|exhausted|too many requests/i.test(msg);
+  const msg = err instanceof Error ? `${err.message} ${(err as { statusCode?: number }).statusCode ?? ""} ${err.name}` : String(err);
+  return /quota|rate limit|rate-limit|\b429\b|exhausted|too many requests|\b503\b|overloaded|high demand|unavailable|timed? ?out|timeout|aborted/i.test(msg);
 }
 
 function longDate(iso: string): string {

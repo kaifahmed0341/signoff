@@ -305,7 +305,7 @@ export async function runCheck(db: DB, milestoneId: string, deliveryId: string):
         out = { summary: summarize(crit.map((_, i) => results.find((r) => r.criterionId === `c${i + 1}`) ?? { verdict: "needs_person" }), label), results };
       } catch (err) {
         fallbackReason = `The AI model failed (${shortError(err)})`;
-        if (isQuotaError(err)) quotaReason = "The live AI model is out of quota for now";
+        if (isQuotaError(err)) quotaReason = /quota|rate|429|exhausted|too many/i.test(String(err)) ? "The live AI model is out of quota for now" : "The live AI model is overloaded right now";
       }
     }
 

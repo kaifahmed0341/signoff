@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { MockLanguageModelV4 } from "ai/test";
 import { checks, verdicts } from "@/lib/db/schema";
 import { runCheck } from "@/lib/ai/checker";
-import { setModelForTests } from "@/lib/ai/model";
+import { setModelForTests, setOverloadRetryForTests } from "@/lib/ai/model";
 import { finalizePlan, scriptedPlan } from "@/lib/ai/planner";
 import { STORED_SAMPLE_RESULTS, isQuotaError, storedResultFor } from "@/lib/ai/stored-results";
 import { FAKE_NONCES, type FakeRail } from "@/lib/payments/fake-rail";
@@ -79,6 +79,30 @@ describe("stored sample results", () => {
     expect(vs.filter((v) => v.verdict === "not_met")).toHaveLength(2);
   });
 
+  it("F1: Gemini's 503 high demand counts as out of quota, after one short retry", async () => {
+    const overload = Object.assign(new Error("This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."), { statusCode: 503 });
+    expect(isQuotaError(overload)).toBe(true);
+    setOverloadRetryForTests(0);
+    let calls = 0;
+    const m = await funded(true);
+    const d = await submitDelivery(db, m.id, { links: sampleLinks("cheat"), notes: "", files: [] });
+    setModelForTests({
+      label: "google/gemini-3.5-flash-lite",
+      model: new MockLanguageModelV4({
+        doGenerate: async () => {
+          calls++;
+          throw overload;
+        },
+      }),
+    });
+    await runCheck(db, m.id, d);
+    const c = (await latestCheck(db, m.id))!;
+    const [row] = await db.select().from(checks).where(eq(checks.id, c.id));
+    expect(calls).toBeGreaterThanOrEqual(2);
+    expect(row.model).toMatch(/stored result/);
+    expect(row.fallbackReason).toMatch(/overloaded right now/);
+  });
+
   it("never stand in for a user's own project, even with the same links and criteria", async () => {
     const { row } = await check(false, 2, "429 Too Many Requests");
     expect(row.model).toBe("scripted");
@@ -96,6 +120,6 @@ describe("stored sample results", () => {
     expect(storedResultFor({ ...base, links: [`${origin}/samples/sample-v2/index.html?x=1`], criteria: crit })).toBeNull();
     expect(storedResultFor({ ...base, links: [`${origin}/samples/sample-v2/index.html`], criteria: [...crit.slice(0, 3), "Something else."] })).toBeNull();
     expect(isQuotaError(new Error("RESOURCE_EXHAUSTED"))).toBe(true);
-    expect(isQuotaError(new Error("timeout"))).toBe(false);
+    expect(isQuotaError(new Error("Invalid JSON in response"))).toBe(false);
   });
 });
