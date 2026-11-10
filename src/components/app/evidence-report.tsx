@@ -73,7 +73,7 @@ export function EvidenceReport({ m }: { m: MilestoneView }) {
                 <span className="min-w-0">
                   <span className="font-medium">
                     {f.kind === "hidden_text" ? "Text hidden from visitors" : f.kind === "pasted_requirement" ? "Requirement pasted onto the page" : "Instruction aimed at the AI checker"}
-                    {f.how ? ` (${f.how})` : ""}:
+                    {f.how && f.kind !== "pasted_requirement" ? ` (${f.how})` : ""}:
                   </span>{" "}
                   <span className="break-words">&ldquo;{f.excerpt}&rdquo;</span>
                 </span>
