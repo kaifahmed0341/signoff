@@ -1,0 +1,1 @@
+ALTER TABLE `milestones` ADD `dispute_sim_transaction_id` text;

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, Copy, ExternalLink, FileSignature, Gavel, Link2Off, RefreshCw, RotateCw, Send, ShieldCheck, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { STANDIN_EXPLANATION } from "@/lib/services/dispute-text";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,8 +15,7 @@ import {
   rerunCheckAction,
   rotateLinkAction,
   sendProjectAction,
-  settleForTestingAction,
-  simulateDisputeWebhookAction,
+  simulateChargebackAction,
   submitDeliveryAction,
 } from "@/app/actions";
 
@@ -157,25 +157,16 @@ export function DeliveryForm({ milestoneId, sampleLinks }: { milestoneId: string
   );
 }
 
-export function SandboxTools({ milestoneId, rail, transactionStatus }: { milestoneId: string; rail: string; transactionStatus: string | null }) {
+export function SandboxTools({ milestoneId, rail }: { milestoneId: string; rail: string; transactionStatus?: string | null }) {
   const { pending, run } = useAction();
   if (rail === "production") return null;
   return (
     <div className="rounded-lg border border-dashed p-3 text-xs space-y-2">
-      <div className="font-medium text-muted-foreground">Sandbox tools, to show what happens when a client disputes</div>
-      <div className="flex flex-wrap gap-2">
-        {transactionStatus === "submitted_for_settlement" && (
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => settleForTestingAction(milestoneId), "Settled")}>Settle now and check for disputes</Button>
-        )}
-        {rail === "fake" && (
-          <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => simulateDisputeWebhookAction(milestoneId), (r) => `Webhook handled: ${r.data}`)}>Open a chargeback with a signed webhook</Button>
-        )}
-      </div>
-      <p className="text-muted-foreground">
-        {rail === "fake"
-          ? "The test rail opens a chargeback and sends a webhook signed with the Braintree SDK through the real handler."
-          : "On the Braintree sandbox, a hold paid with card 4023898493988028 opens a chargeback once settled."}
-      </p>
+      <div className="font-medium text-muted-foreground">Show what happens when a client disputes</div>
+      <Button size="sm" variant="outline" disabled={pending} onClick={() => run(() => simulateChargebackAction(milestoneId), (r) => String(r.data))}>
+        {pending ? "Asking Braintree for a chargeback" : "Sandbox: simulate the client's bank disputing this payment"}
+      </Button>
+      <p className="text-muted-foreground">{STANDIN_EXPLANATION}</p>
     </div>
   );
 }

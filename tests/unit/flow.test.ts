@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { eq } from "drizzle-orm";
 import { MockLanguageModelV4 } from "ai/test";
-import { auditEvents, checks, verdicts, toolCalls, disputes } from "@/lib/db/schema";
+import { auditEvents, checks, milestones, verdicts, toolCalls, disputes } from "@/lib/db/schema";
 import { STALE_CHECK_MS, draftChangeNote, failStaleChecks, runCheck } from "@/lib/ai/checker";
 import { setModelForTests } from "@/lib/ai/model";
 import { createSampleProject, sampleLinks } from "@/lib/sample";
@@ -18,7 +18,7 @@ import {
   requestChanges,
   verifyRecord,
 } from "@/lib/services/milestones";
-import { approveAndSubmitDispute, handleWebhook, milestoneDisputes, syncDisputes } from "@/lib/services/disputes";
+import { approveAndSubmitDispute, handleWebhook, milestoneDisputes, simulateChargeback, syncDisputes, upsertDispute } from "@/lib/services/disputes";
 import { FAKE_NONCES, type FakeRail } from "@/lib/payments/fake-rail";
 import type { DB } from "@/lib/db";
 import { OWNER_WORKSPACE_ID as OWNER } from "@/lib/services/workspaces";
@@ -414,5 +414,63 @@ describe("a hold means authorized", () => {
     const f = await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
     expect(f.state).toBe("funded");
     expect(f.transactionStatus).toBe("authorized");
+  });
+});
+
+describe("chargeback after sign-off", () => {
+  async function released() {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    return acceptAndRelease(db, rail, m.id, { signerName: "Robin Client" });
+  }
+
+  it("cannot be simulated before the client signs off", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    await expect(simulateChargeback(db, rail, m.id, 0)).rejects.toThrow(/after the client has signed off/);
+  });
+
+  it("ties the stand-in charge's real dispute to the signed milestone, with the pack drafted", async () => {
+    const m = await released();
+    const d = await simulateChargeback(db, rail, m.id, 0);
+    expect(d).not.toBeNull();
+    expect(d!.milestoneId).toBe(m.id);
+    expect(d!.evidencePack).toContain("Robin Client");
+    const after = await getMilestone(db, m.id);
+    expect(after.disputeSimTransactionId).toBe(d!.transactionId);
+    expect(after.transactionId).not.toBe(d!.transactionId);
+    // Braintree's webhook names the stand-in transaction; it still finds this milestone.
+    const s = await rail.disputeWebhook("dispute_opened", d!.id);
+    expect((await handleWebhook(db, rail, s.signature, s.payload)).outcome).toMatch(/dispute .* open/);
+    await expect(simulateChargeback(db, rail, m.id, 0)).rejects.toThrow(/already simulated/);
+    const done = await approveAndSubmitDispute(db, rail, d!.id);
+    expect(done.submittedAt).toBeTruthy();
+  });
+
+  it("drafts a missing pack once a signed record exists, and never claims one it did not draft", async () => {
+    const m0 = await firstMilestone();
+    const m = await fundMilestone(db, rail, m0.id, { nonce: FAKE_NONCES.card });
+    const id = await rail.openDisputeFor(m.transactionId!);
+    const first = await upsertDispute(db, rail, await rail.getDispute(id), "reconcile");
+    expect(first!.evidencePack).toBeNull();
+    const opened = (await db.select().from(auditEvents).where(eq(auditEvents.milestoneId, m.id))).find((e) => e.type === "dispute.opened");
+    expect(opened!.message).toMatch(/no evidence pack was drafted/);
+    await expect(acceptAndRelease(db, rail, m.id, { signerName: "Robin" })).rejects.toThrow();
+    // A record appears later (written here directly), and the next sync drafts the pack.
+    await db.update(milestones).set({ acceptanceRecord: JSON.stringify({ version: 1, project: { id: "p", name: "P", client: "C" }, milestone: { id: m.id, title: "T", deliverable: "D", amountCents: 1, currency: "USD" }, transactionId: m.transactionId, delivery: null, check: null, criteria: [], signedOffBy: "Robin", signedOffAt: new Date().toISOString(), releasedCents: 1 }), acceptanceSignature: "sig" }).where(eq(milestones.id, m.id));
+    const second = await upsertDispute(db, rail, await rail.getDispute(id), "reconcile");
+    expect(second!.evidencePack).toContain("Robin");
+  });
+
+  it("refuses sign-off while a chargeback is open on the milestone", async () => {
+    const m = await firstMilestone();
+    await fundMilestone(db, rail, m.id, { nonce: FAKE_NONCES.card });
+    const d = await submitDelivery(db, m.id, { links: sampleLinks(2), notes: "", files: [] });
+    await runCheck(db, m.id, d);
+    const id = await rail.openDisputeFor((await getMilestone(db, m.id)).transactionId!);
+    await upsertDispute(db, rail, await rail.getDispute(id), "reconcile");
+    await expect(acceptAndRelease(db, rail, m.id, { signerName: "Robin" })).rejects.toThrow(/chargeback is open/);
   });
 });

@@ -74,6 +74,12 @@ export interface PaymentRail {
   sampleWebhook(kind: string, subjectId: string): Promise<{ signature: string; payload: string }>;
   /** Sandbox helper: move a submitted transaction to settled. */
   testSettle(transactionId: string): Promise<Hold>;
+  /**
+   * Sandbox and test rail only. Braintree's sandbox opens a chargeback only for its dispute test card,
+   * which it charges at once, so a dispute on a signed milestone needs a stand-in charge: this makes it
+   * for the same amount, settles it, and returns its transaction. Refused in production.
+   */
+  chargeDisputeCard(input: { amountCents: number; orderId: string; description: string }): Promise<Hold>;
 }
 
 /** Braintree's sandbox test cards, shown to judges next to the payment form. */

@@ -95,6 +95,11 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
                   {m.state === "changes_requested" && <p className="text-sm text-muted-foreground">You asked for changes. The hold stays in place until the next delivery is checked.</p>}
                   <EvidenceReport m={m} />
                   {m.state === "in_review" && <DecisionPanel projectId={project.id} token={token} milestoneId={m.id} heldCents={m.heldCents} heldLabel={money(m.heldCents, project.currency)} allMet={allMet} />}
+                  {m.disputes.length > 0 && (
+                    <div role="alert" className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-900 dark:text-red-200">
+                      <strong>A chargeback was opened on this payment</strong> ({m.disputes[0].status.replace(/_/g, " ")}). The freelancer can answer it with the acceptance record you signed.
+                    </div>
+                  )}
                   {m.state === "released" && (
                     <Link href={`/receipt/${m.id}?t=${token}`} className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"><Receipt className="size-4" /> View receipt {m.receiptNumber}</Link>
                   )}

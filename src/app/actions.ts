@@ -13,10 +13,9 @@ import { FakeRail } from "@/lib/payments/fake-rail";
 import { runCheck } from "@/lib/ai/checker";
 import { planFromScope, type PlannedProject } from "@/lib/ai/planner";
 import { createSampleProject } from "@/lib/sample";
-import { audit } from "@/lib/services/audit";
 import { fileToText } from "@/lib/services/files";
 import { MAX_FILE_BYTES, MAX_FILES, MAX_TOTAL_UPLOAD_BYTES, submitDelivery } from "@/lib/services/deliveries";
-import { approveAndSubmitDispute, getDisputeRow, handleWebhook, syncDisputes } from "@/lib/services/disputes";
+import { approveAndSubmitDispute, getDisputeRow, handleWebhook, simulateChargeback, syncDisputes } from "@/lib/services/disputes";
 import {
   ServiceError,
   applyEvent,
@@ -305,43 +304,24 @@ export async function approveDisputeAction(disputeId: string, pack: string, sand
   }
 }
 
-/** Sandbox and test rail only: settle a released transaction, then look for disputes. */
-export async function settleForTestingAction(milestoneId: string): Promise<ActionResult> {
-  const w = await requireWorkspace();
-  try {
-    const db = await getDb();
-    const rail = getRail();
-    if (rail.mode === "production") throw new ServiceError("Not available in production");
-    const m = await getOwnedMilestone(db, w.id, milestoneId);
-    if (!m.transactionId) throw new ServiceError("No transaction");
-    const hold = await rail.testSettle(m.transactionId);
-    await audit(db, { projectId: m.projectId, milestoneId, actor: "operator", type: "sandbox.settled", message: `Sandbox helper settled the transaction (now ${hold.status})`, data: { transactionId: hold.transactionId } });
-    await reconcileProject(db, rail, m.projectId);
-    await syncDisputes(db, rail, milestoneId);
-    revalidatePath(`/projects/${m.projectId}`);
-    return { ok: true };
-  } catch (err) {
-    return fail(err);
-  }
-}
-
 /**
- * Test rail only: open a chargeback, build a correctly signed dispute_opened
- * webhook with the Braintree SDK, and send it through the real handler.
+ * Sandbox and test rail only: simulate the client's bank disputing a released milestone. Makes the
+ * stand-in dispute-card charge (see simulateChargeback), and on the test rail also sends a signed
+ * dispute_opened webhook through the real handler, as Braintree does on the sandbox.
  */
-export async function simulateDisputeWebhookAction(milestoneId: string): Promise<ActionResult<string>> {
+export async function simulateChargebackAction(milestoneId: string): Promise<ActionResult<string>> {
   const w = await requireWorkspace();
   try {
     const db = await getDb();
     const rail = getRail();
-    if (!(rail instanceof FakeRail)) throw new ServiceError("On the Braintree sandbox, pay with the dispute test card 4023898493988028 and use Settle instead");
     const m = await getOwnedMilestone(db, w.id, milestoneId);
-    if (!m.transactionId || m.state !== "released") throw new ServiceError("Only a released milestone can be disputed");
-    const disputeId = await rail.openDisputeFor(m.transactionId);
-    const s = await rail.disputeWebhook("dispute_opened", disputeId);
-    const r = await handleWebhook(db, rail, s.signature, s.payload);
+    const d = await simulateChargeback(db, rail, milestoneId);
+    if (d && rail instanceof FakeRail) {
+      const s = await rail.disputeWebhook("dispute_opened", d.id);
+      await handleWebhook(db, rail, s.signature, s.payload);
+    }
     revalidatePath(`/projects/${m.projectId}`);
-    return { ok: true, data: r.outcome };
+    return { ok: true, data: d ? `Braintree opened dispute ${d.id}` : "The stand-in charge was made; Braintree has not opened the dispute yet. Reconcile in a minute." };
   } catch (err) {
     return fail(err);
   }

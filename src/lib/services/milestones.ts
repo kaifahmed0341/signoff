@@ -3,6 +3,7 @@ import type { DB } from "../db";
 import {
   checks,
   criteria,
+  disputes,
   deliveries,
   milestones,
   projects,
@@ -334,6 +335,8 @@ export async function acceptAndRelease(
   if (!m.transactionId) throw new ServiceError("No hold to release", 409);
   const signer = input.signerName.trim().slice(0, 120);
   if (signer.length < 2) throw new ServiceError("Type your name to sign off");
+  const [openDispute] = await db.select({ id: disputes.id }).from(disputes).where(and(eq(disputes.milestoneId, m.id), eq(disputes.status, "open")));
+  if (openDispute) throw new ServiceError("A chargeback is open on this payment, so it cannot be released until the dispute is settled", 409);
   const amount = input.amountCents ?? m.heldCents;
   if (!Number.isInteger(amount) || amount <= 0 || amount > m.heldCents) {
     throw new ServiceError("Release amount must be a whole number of cents, above zero and no more than the hold");

@@ -162,6 +162,11 @@ export class FakeRail implements PaymentRail {
     return toHold({ ...t, status: "voided" });
   }
 
+  async chargeDisputeCard(input: { amountCents: number; orderId: string; description: string }) {
+    const t = await this.authorize({ nonce: FAKE_NONCES.disputeCard, amountCents: input.amountCents, orderId: input.orderId, description: input.description });
+    return this.testSettle(t.transactionId);
+  }
+
   async testSettle(transactionId: string) {
     const t = await this.get(transactionId);
     if (t.status !== "submitted_for_settlement") throw new RailError(`Cannot settle a transaction that is ${t.status}`, "91507", transactionId);

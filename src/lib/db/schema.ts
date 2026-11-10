@@ -102,6 +102,11 @@ export const milestones = sqliteTable(
     claimedFrom: text("claimed_from"),
     /** When the current releasing or voiding claim was taken; reconcile leaves young claims alone. */
     claimedAt: integer("claimed_at", { mode: "timestamp_ms" }),
+    /**
+     * Sandbox only: the stand-in charge made with Braintree's dispute test card after sign-off, because the
+     * sandbox opens chargebacks only for that card, which it charges at once. Its dispute belongs to this milestone.
+     */
+    disputeSimTransactionId: text("dispute_sim_transaction_id"),
     /** Set by reconcile when the app and Braintree disagree in a way only a person can resolve. */
     attention: text("attention"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull().default(now),

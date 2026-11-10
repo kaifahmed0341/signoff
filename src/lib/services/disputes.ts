@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import type { DB } from "../db";
 import { disputes, milestones, webhookEvents, type Dispute, type Milestone } from "../db/schema";
 import { RailError, type DisputeInfo, type PaymentRail, type WebhookEvent } from "../payments/rail";
@@ -7,9 +7,14 @@ import { ServiceError, getMilestone, getProject, money, reconcileMilestone, veri
 
 const TEXT_EVIDENCE_LIMIT = 1800;
 
+/** The milestone a transaction belongs to: its own hold, or the sandbox stand-in charge made for its dispute. */
 export async function milestoneByTransaction(db: DB, transactionId: string): Promise<Milestone | null> {
-  const [m] = await db.select().from(milestones).where(eq(milestones.transactionId, transactionId));
+  const [m] = await db.select().from(milestones).where(or(eq(milestones.transactionId, transactionId), eq(milestones.disputeSimTransactionId, transactionId)));
   return m ?? null;
+}
+
+function draftPack(m: Milestone): string | null {
+  return m.acceptanceRecord ? evidencePack(JSON.parse(m.acceptanceRecord) as AcceptanceRecord, m.acceptanceSignature ?? "") : null;
 }
 
 export async function milestoneDisputes(db: DB, milestoneId: string) {
@@ -41,17 +46,23 @@ export async function upsertDispute(db: DB, rail: PaymentRail, hint: DisputeInfo
   if (existing) {
     if (eventAt && existing.lastEventAt && eventAt < existing.lastEventAt) return existing;
     const patch: Partial<Dispute> = { updatedAt: new Date(), ...(eventAt ? { lastEventAt: eventAt } : {}) };
+    // A dispute that opened before there was a signed record gets its pack as soon as one exists.
+    const redrafted = !existing.evidencePack && !existing.submittedAt ? draftPack(m) : null;
+    if (redrafted) patch.evidencePack = redrafted;
     if (existing.status !== info.status) {
       patch.status = info.status;
       if (["won", "lost", "accepted", "expired", "auto_accepted"].includes(info.status)) patch.outcomeAt = new Date();
     }
     await db.update(disputes).set(patch).where(eq(disputes.id, info.id));
+    if (redrafted) {
+      await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "system", type: "dispute.pack_drafted", message: `Evidence pack drafted from the signed acceptance record for dispute ${info.id}`, data: { disputeId: info.id } });
+    }
     if (patch.status) {
       await audit(db, { projectId: m.projectId, milestoneId: m.id, actor: "braintree", type: "dispute.updated", message: `Dispute ${info.id} is now ${info.status.replace(/_/g, " ")}`, data: { disputeId: info.id, status: info.status, source } });
     }
     return getDisputeRow(db, info.id);
   }
-  const pack = m.acceptanceRecord ? evidencePack(JSON.parse(m.acceptanceRecord) as AcceptanceRecord, m.acceptanceSignature ?? "") : null;
+  const pack = draftPack(m);
   await db
     .insert(disputes)
     .values({
@@ -75,7 +86,7 @@ export async function upsertDispute(db: DB, rail: PaymentRail, hint: DisputeInfo
     milestoneId: m.id,
     actor: "braintree",
     type: "dispute.opened",
-    message: `A ${info.kind ?? "dispute"} for ${money(info.amountCents, p.currency)} was opened (${(info.reason ?? "no reason").replace(/_/g, " ")}). Evidence pack drafted from the signed acceptance record.`,
+    message: `A ${info.kind ?? "dispute"} for ${money(info.amountCents, p.currency)} was opened (${(info.reason ?? "no reason").replace(/_/g, " ")}). ${pack ? "Evidence pack drafted from the signed acceptance record." : "There is no signed acceptance record yet, so no evidence pack was drafted."}`,
     data: { disputeId: info.id, transactionId: info.transactionId, replyBy: info.replyByDate, source },
   });
   return getDisputeRow(db, info.id);
@@ -162,10 +173,47 @@ export async function approveAndSubmitDispute(db: DB, rail: PaymentRail, dispute
 /** Pull disputes for released milestones, for when no public webhook URL exists (local dev). */
 export async function syncDisputes(db: DB, rail: PaymentRail, milestoneId: string) {
   const m = await getMilestone(db, milestoneId);
-  if (!m.transactionId || m.state !== "released") return [];
-  const found = await rail.findDisputes(m.transactionId);
+  const txns = [m.transactionId, m.disputeSimTransactionId].filter((t): t is string => !!t);
+  const found: DisputeInfo[] = [];
+  for (const t of txns) found.push(...(await rail.findDisputes(t)));
   for (const info of found) await upsertDispute(db, rail, info, "reconcile");
   return found;
+}
+
+export { STANDIN_EXPLANATION } from "./dispute-text";
+import { STANDIN_EXPLANATION } from "./dispute-text";
+
+/**
+ * Sandbox simulation of the client's bank disputing a released milestone. Makes the stand-in
+ * dispute-card charge for the same amount, records it on the milestone, and waits briefly for
+ * Braintree to open the dispute (its dispute_opened webhook follows). Never in production.
+ */
+export async function simulateChargeback(db: DB, rail: PaymentRail, milestoneId: string, waitMs = 30_000): Promise<Dispute | null> {
+  if (rail.mode === "production") throw new ServiceError("Chargeback simulation is sandbox only");
+  const m = await getMilestone(db, milestoneId);
+  if (m.state !== "released" || !m.acceptanceRecord) throw new ServiceError("A chargeback can be simulated only after the client has signed off and the payment was released", 409);
+  if (m.disputeSimTransactionId) throw new ServiceError("A chargeback was already simulated for this milestone", 409);
+  const t = await rail.chargeDisputeCard({ amountCents: m.settledCents || m.amountCents, orderId: `${m.id}-dispute`, description: `Chargeback simulation: ${m.title}` });
+  const claimed = await db
+    .update(milestones)
+    .set({ disputeSimTransactionId: t.transactionId })
+    .where(and(eq(milestones.id, m.id), isNull(milestones.disputeSimTransactionId)));
+  if (claimed.rowsAffected !== 1) throw new ServiceError("A chargeback was already simulated for this milestone", 409);
+  await audit(db, {
+    projectId: m.projectId,
+    milestoneId: m.id,
+    actor: "operator",
+    type: "sandbox.chargeback_simulated",
+    message: `Sandbox simulation of the client's bank disputing this payment: a stand-in charge of ${money(t.amountCents, t.currency)} with Braintree's dispute test card (${t.status.replace(/_/g, " ")}). ${STANDIN_EXPLANATION.split(", so ")[0]}.`,
+    data: { transactionId: t.transactionId, status: t.status },
+  });
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const found = await rail.findDisputes(t.transactionId);
+    if (found.length) return upsertDispute(db, rail, found[0], "reconcile");
+    if (Date.now() > deadline) return null;
+    await new Promise((r) => setTimeout(r, 2500));
+  }
 }
 
 // ---------------------------------------------------------------- webhooks

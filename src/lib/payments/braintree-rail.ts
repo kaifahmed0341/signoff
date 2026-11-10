@@ -203,6 +203,20 @@ export class BraintreeRail implements PaymentRail {
     return sampleWithGateway(this.gw, kind, subjectId);
   }
 
+  async chargeDisputeCard(input: { amountCents: number; orderId: string; description: string }): Promise<Hold> {
+    if (this.mode === "production") throw new RailError("The dispute test card is sandbox only", "test_card_in_production");
+    const r = (await this.gw.transaction.sale({
+      amount: centsToAmount(input.amountCents),
+      creditCard: { number: SANDBOX_DISPUTE_CARD.replace(/\s/g, ""), expirationDate: "12/2030" },
+      orderId: input.orderId,
+      merchantAccountId: this.merchantAccountId,
+      options: { submitForSettlement: true },
+    } as braintree.TransactionRequest)) as unknown as Result;
+    const t = toHold(unwrap(r, "Stand-in dispute charge"));
+    await this.gw.testing.settle(t.transactionId);
+    return this.getHold(t.transactionId);
+  }
+
   async testSettle(transactionId: string): Promise<Hold> {
     if (this.mode === "production") throw new RailError("Settlement helper is sandbox only");
     await this.gw.testing.settle(transactionId);

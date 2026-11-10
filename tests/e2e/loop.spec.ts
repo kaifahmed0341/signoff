@@ -49,8 +49,9 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   const rail = await railOf(page);
   if (rail === "sandbox") await client.locator("section").first().locator(".braintree-dropin").waitFor({ timeout: 60_000 });
   await client.screenshot({ path: `${shots}/02-client-fund.png`, fullPage: true });
-  // The dispute test card, so the chargeback step below has a real sandbox dispute.
-  await fundFirstMilestone(client, rail, "4023898493988028");
+  // Braintree's ordinary test card: an authorization, so the money is held, not charged.
+  await fundFirstMilestone(client, rail, "4111111111111111");
+  await expect(client.getByText(/Visa ending 1111|PayPal buyer/).first()).toBeVisible();
 
   // The operator submits the cheat version. The report shows the tampering and the removed quotes.
   await page.reload();
@@ -89,20 +90,19 @@ test("a visitor runs the whole loop in a private demo workspace", async ({ page,
   await client.screenshot({ path: `${shots}/05-receipt.png`, fullPage: true });
 
   // A chargeback opens; the operator approves evidence drafted from the signed record.
+  // After sign-off: the operator simulates the client's bank disputing this payment (a stand-in sandbox charge with the dispute card).
   await page.reload();
-  if (rail === "sandbox") {
-    // Settle with Braintree's sandbox helper; the dispute card then opens a real chargeback, found by reconcile or webhook.
-    await page.getByRole("button", { name: "Settle now and check for disputes" }).click();
-    await expect(async () => {
-      await page.reload();
-      await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible({ timeout: 5_000 });
-    }).toPass({ timeout: 120_000 });
-  } else {
-    await page.getByRole("button", { name: "Open a chargeback with a signed webhook" }).click();
-  }
+  await page.getByRole("button", { name: "Sandbox: simulate the client's bank disputing this payment" }).click();
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 120_000 });
+  await expect(page.getByRole("textbox", { name: "Evidence pack" })).toHaveValue(/Robin Client/);
   await expect(page.getByRole("button", { name: "Approve and submit evidence to Braintree" })).toBeVisible();
   await expect(page.getByText(/Chargeback opened for \$450\.00/)).toBeVisible();
   await page.getByRole("button", { name: "Approve and submit evidence to Braintree" }).click();
+  await client.goto(shareUrl);
+  await expect(client.getByText("A chargeback was opened on this payment")).toBeVisible();
   // The test rail decides at once; the sandbox moves a finalized dispute to "disputed" and decides later.
   await expect(page.getByText(rail === "sandbox" ? "Evidence submitted. View what was sent" : "Outcome: won")).toBeVisible({ timeout: 60_000 });
   await page.screenshot({ path: `${shots}/06-dispute.png`, fullPage: true });

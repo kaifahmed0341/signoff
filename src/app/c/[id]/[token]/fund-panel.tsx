@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Copy, CreditCard, Lock, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { clientTokenAction, fundAction } from "@/app/c/actions";
-import { SANDBOX_DISPUTE_CARD, SANDBOX_DISPUTE_CARD_NONCE, SANDBOX_QUICK_NONCE, SANDBOX_TEST_CARD } from "@/lib/payments/rail";
+import { SANDBOX_QUICK_NONCE, SANDBOX_TEST_CARD } from "@/lib/payments/rail";
 
 type DropinInstance = {
   requestPaymentMethod: () => Promise<{ nonce: string; deviceData?: string; type: string }>;
@@ -86,7 +86,6 @@ function DropinCheckout(props: Props) {
             {!props.paypalEnabled && " PayPal through Braintree needs a PayPal sandbox account linked to Braintree, which this demo cannot have, so only cards are offered."}
           </div>
           <CardToCopy label="Test card" number={SANDBOX_TEST_CARD} />
-          <CardToCopy label="To see a chargeback later, use the dispute test card" number={SANDBOX_DISPUTE_CARD} />
         </div>
       )}
       <div ref={box} />
@@ -109,10 +108,9 @@ function DropinCheckout(props: Props) {
       {sandbox && (
         <div className="rounded-lg border border-dashed p-3 text-xs space-y-2">
           <div className="font-medium flex items-center gap-1.5"><Zap className="size-3.5" /> In a hurry?</div>
-          <p className="text-muted-foreground">These place a real Braintree sandbox hold from the server with Braintree&apos;s test card, without typing.</p>
+          <p className="text-muted-foreground">This places a real Braintree sandbox hold from the server with Braintree&apos;s test card, without typing.</p>
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={pending} onClick={() => fund(SANDBOX_QUICK_NONCE)}>Quick hold with the test card</Button>
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => fund(SANDBOX_DISPUTE_CARD_NONCE)}>Quick hold with the dispute card</Button>
           </div>
         </div>
       )}
