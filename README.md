@@ -6,6 +6,8 @@ Proof of delivery for services. A tracking number wins a chargeback for physical
 
 **Live demo:** https://signoff-iota.vercel.app. No sign-up. Each visitor gets a private workspace, and every payment runs on the real Braintree sandbox. No real money moves.
 
+**Video, 2:53:** https://youtu.be/dPn5BDk-5UI
+
 > **Judge path, about four minutes.** You play both people.
 >
 > 1. Click **Try the live demo**, open the sample project, then **Open as client**. Expect a client page that says the money is held, not charged.
